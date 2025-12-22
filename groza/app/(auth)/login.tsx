@@ -12,22 +12,23 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
 } from 'react-native';
-import { Link, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useStore } from '@/store/useStore';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { signIn } from '@/services/auth';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
+  const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [emailFocused, setEmailFocused] = useState(false);
+  const [usernameOrEmailFocused, setUsernameOrEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const passwordRef = useRef<TextInput>(null);
-  const { setUser, setAuthenticated, setError } = useStore();
+  const { setUser, setAuthenticated, setError, error } = useStore();
   const colorSchemeRaw = useColorScheme();
   const colorScheme = colorSchemeRaw === 'dark' ? 'dark' : 'light';
 
@@ -37,8 +38,8 @@ export default function LoginScreen() {
     }
   };
 
-  const handleEmailChange = (text: string) => {
-    setEmail(text);
+  const handleUsernameOrEmailChange = (text: string) => {
+    setUsernameOrEmail(text);
     clearError();
   };
 
@@ -48,35 +49,25 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    if (!usernameOrEmail || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
 
     setIsLoading(true);
+    setHasError(false);
     try {
-      // Mock validation - simulate incorrect credentials
-      if (email !== 'demo@example.com' || password !== 'password123') {
-        setHasError(true);
-        setIsLoading(false);
-        return;
-      }
-
-      // Mock login for demo purposes
-      const mockUser = {
-        id: '1',
-        email: email,
-        name: 'Demo User',
-        role: 'customer' as const,
-      };
+      // Sign in using Firebase Auth (supports username or email)
+      const userData = await signIn(usernameOrEmail, password);
       
-      setUser(mockUser);
+      setUser(userData);
       setAuthenticated(true);
       setError(null);
       router.replace('/(tabs)');
     } catch (error: any) {
+      setHasError(true);
       setError(error.message);
-      Alert.alert('Login Failed', error.message);
+      // Don't show alert, error is displayed in the UI
     } finally {
       setIsLoading(false);
     }
@@ -105,24 +96,23 @@ export default function LoginScreen() {
             {/* Form */}
             <View style={[styles.form, { gap: hasError ? 8 : 16 }]}>
               <View style={styles.inputContainer}>
-                <Text style={[styles.label, { color: Colors[colorScheme].text }]}>Email</Text>
+                <Text style={[styles.label, { color: Colors[colorScheme].text }]}>Username or Email</Text>
                 <TextInput
                   style={[styles.input, { 
                     color: hasError ? '#ef4444' : Colors[colorScheme].text, 
-                    borderColor: hasError ? '#ef4444' : emailFocused ? '#000' : colorScheme === 'dark' ? '#333' : '#d1d5db', 
-                    borderWidth: emailFocused ? 3 : 1,
+                    borderColor: hasError ? '#ef4444' : usernameOrEmailFocused ? '#000' : colorScheme === 'dark' ? '#333' : '#d1d5db', 
+                    borderWidth: usernameOrEmailFocused ? 3 : 1,
                     backgroundColor: Colors[colorScheme].background 
                   }]}
-                  placeholder="Enter your email"
-                  value={email}
-                  onChangeText={handleEmailChange}
-                  keyboardType="email-address"
+                  placeholder="Enter your username or email"
+                  value={usernameOrEmail}
+                  onChangeText={handleUsernameOrEmailChange}
                   autoCapitalize="none"
                   autoCorrect={false}
                   returnKeyType="next"
                   onSubmitEditing={() => passwordRef.current?.focus()}
-                  onFocus={() => setEmailFocused(true)}
-                  onBlur={() => setEmailFocused(false)}
+                  onFocus={() => setUsernameOrEmailFocused(true)}
+                  onBlur={() => setUsernameOrEmailFocused(false)}
                 />
               </View>
               <View style={[styles.inputContainer, { marginTop: hasError ? 8 : 0, position: 'relative' }]}>
@@ -134,7 +124,8 @@ export default function LoginScreen() {
                     borderColor: hasError ? '#ef4444' : passwordFocused ? '#000' : colorScheme === 'dark' ? '#333' : '#d1d5db', 
                     borderWidth: passwordFocused ? 3 : 1,
                     backgroundColor: Colors[colorScheme].background,
-                    paddingRight: 44
+                    paddingRight: 44,
+                    letterSpacing: 0
                   }]}
                   placeholder="Enter your password"
                   value={password}
@@ -155,7 +146,7 @@ export default function LoginScreen() {
                 </TouchableOpacity>
                 {hasError && (
                   <Text style={[styles.errorText, { color: '#ef4444' }]}>
-                    Your email/password is incorrect.
+                    {error || 'Your username/email or password is incorrect.'}
                   </Text>
                 )}
               </View>
@@ -173,7 +164,7 @@ export default function LoginScreen() {
               </TouchableOpacity>
               <TouchableOpacity 
                 style={{ marginTop: hasError ?31.5: 24, marginBottom: 0.5 }}
-                onPress={() => Alert.alert('Account Recovery', 'Account recovery feature coming soon!')}>
+                onPress={() => router.push('/(auth)/forgot-password')}>
                 <Text style={[styles.recoveryLink, { textAlign: 'center' }]}>
                   <Text style={{ color: colorScheme === 'dark' ? '#aaa' : '#6b7280', marginBottom: 4 }}>Forgot password? </Text>
                   <Text style={{ fontWeight: '600' }}>Recover Account</Text>
@@ -184,11 +175,9 @@ export default function LoginScreen() {
             <View style={styles.linkContainer}>
               <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: hasError ? -0.5 : 0 }}>
                 <Text style={[styles.linkText, { color: colorScheme === 'dark' ? '#aaa' : '#6b7280' }]}>Don't have an account? </Text>
-                <Link href="/(auth)/signup" asChild>
-                  <TouchableOpacity>
-                    <Text style={[styles.link, { color: '#000' }]}>Sign Up</Text>
-                  </TouchableOpacity>
-                </Link>
+                <TouchableOpacity onPress={() => router.push('/(auth)/onboarding')}>
+                  <Text style={[styles.link, { color: '#000' }]}>Sign Up</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>

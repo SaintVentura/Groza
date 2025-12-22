@@ -10,15 +10,18 @@ import {
   StyleSheet,
   TouchableWithoutFeedback,
   Keyboard,
+  ScrollView,
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useStore } from '@/store/useStore';
 import { Ionicons } from '@expo/vector-icons';
+import { signUp, checkUsernameAvailability } from '@/services/auth';
 
 export default function SignupScreen() {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [newsletterSubscription, setNewsletterSubscription] = useState(false);
@@ -28,17 +31,36 @@ export default function SignupScreen() {
   const [nameFocused, setNameFocused] = useState(false);
   const [usernameFocused, setUsernameFocused] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
+  const [phoneFocused, setPhoneFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
+  const [usernameError, setUsernameError] = useState('');
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const usernameRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
+  const phoneRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const confirmPasswordRef = useRef<TextInput>(null);
   const { setUser, setAuthenticated, setError } = useStore();
 
   const handleSignup = async () => {
-    if (!name || !username || !email || !password || !confirmPassword) {
+    if (!name || !username || !email || !phone || !password || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    // Phone validation (South African format)
+    const phoneRegex = /^(\+27|0)[6-8][0-9]{8}$/;
+    const cleanedPhone = phone.replace(/\s/g, '');
+    if (!phoneRegex.test(cleanedPhone)) {
+      Alert.alert('Error', 'Please enter a valid South African phone number');
       return;
     }
 
@@ -57,22 +79,76 @@ export default function SignupScreen() {
       return;
     }
 
+    // Validate username format (alphanumeric and underscore only)
+    const usernameRegex = /^[a-zA-Z0-9_]+$/;
+    if (!usernameRegex.test(username)) {
+      Alert.alert('Error', 'Username can only contain letters, numbers, and underscores');
+      return;
+    }
+
     setIsLoading(true);
+    setUsernameError('');
     try {
-      // Mock signup for demo purposes
-      const mockUser = {
-        id: Date.now().toString(),
-        email: email,
-        name: name,
-        username: username.trim(),
-        role: 'customer' as const,
-        newsletterSubscription: newsletterSubscription,
-      };
+      // Check username availability
+      const isAvailable = await checkUsernameAvailability(username);
+      if (!isAvailable) {
+        setUsernameError('Username is already taken. Please choose another one.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Create account using Firebase Auth
+      const userData = await signUp(
+        email.trim().toLowerCase(),
+        password,
+        name.trim(),
+        username.trim(),
+        cleanedPhone,
+        newsletterSubscription,
+        'customer'
+      );
       
-      setUser(mockUser);
+      setUser(userData);
       setAuthenticated(true);
       setError(null);
-      router.replace('/(tabs)');
+      
+      // Request notification permission after signup (gracefully handle Expo Go limitations)
+      try {
+        const Notifications = await import('expo-notifications');
+        const getPermissionsFn = Notifications?.default?.getPermissionsAsync || Notifications?.getPermissionsAsync;
+        const requestPermissionsFn = Notifications?.default?.requestPermissionsAsync || Notifications?.requestPermissionsAsync;
+        
+        if (typeof getPermissionsFn === 'function' && typeof requestPermissionsFn === 'function') {
+          const { status: existingStatus } = await getPermissionsFn();
+          if (existingStatus !== 'granted') {
+            await requestPermissionsFn();
+          }
+        }
+      } catch (error) {
+        // Silently fail in Expo Go - notifications require development build
+        // Error is expected in Expo Go
+      }
+      
+      // Request location permission after signup
+      try {
+        const Location = await import('expo-location');
+        const requestFn = Location?.default?.requestForegroundPermissionsAsync || Location?.requestForegroundPermissionsAsync;
+        
+        if (typeof requestFn === 'function') {
+          const { status: locationStatus } = await requestFn();
+          if (locationStatus === 'granted') {
+            router.replace('/(tabs)/addresses?fromSignup=true');
+          } else {
+            Alert.alert('Location Permission', 'Please enable location services to get accurate delivery estimates.');
+            router.replace('/(tabs)/addresses?fromSignup=true');
+          }
+        } else {
+          router.replace('/(tabs)/addresses?fromSignup=true');
+        }
+      } catch (error) {
+        // Gracefully handle location permission errors - just navigate to addresses
+        router.replace('/(tabs)/addresses?fromSignup=true');
+      }
     } catch (error: any) {
       setError(error.message);
       Alert.alert('Signup Failed', error.message);
@@ -94,6 +170,12 @@ export default function SignupScreen() {
       >
         <Ionicons name="close" size={36} color="#000" />
       </TouchableOpacity>
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+        >
         <View style={styles.content}>
           {/* Header */}
         <View style={[styles.header, { paddingTop: 100 }]}> 
@@ -126,21 +208,51 @@ export default function SignupScreen() {
             <TextInput
               ref={usernameRef}
               style={[styles.input, { 
-                borderColor: usernameFocused ? '#000' : '#d1d5db',
+                borderColor: usernameError ? '#ef4444' : usernameFocused ? '#000' : '#d1d5db',
                 borderWidth: usernameFocused ? 3 : 1
               }]}
               placeholder="Choose a username (without @)"
               value={username}
-              onChangeText={setUsername}
+              onChangeText={(text) => {
+                setUsername(text);
+                setUsernameError('');
+              }}
               autoCapitalize="none"
               autoCorrect={false}
               maxLength={20}
               returnKeyType="next"
               onSubmitEditing={() => emailRef.current?.focus()}
               onFocus={() => setUsernameFocused(true)}
-              onBlur={() => setUsernameFocused(false)}
+              onBlur={async () => {
+                setUsernameFocused(false);
+                // Check username availability when user leaves the field
+                if (username.length >= 3) {
+                  const usernameRegex = /^[a-zA-Z0-9_]+$/;
+                  if (!usernameRegex.test(username)) {
+                    setUsernameError('Username can only contain letters, numbers, and underscores');
+                    return;
+                  }
+                  setIsCheckingUsername(true);
+                  try {
+                    const isAvailable = await checkUsernameAvailability(username);
+                    if (!isAvailable) {
+                      setUsernameError('Username is already taken');
+                    }
+                  } catch (error) {
+                    // Silently fail - will check again on submit
+                  } finally {
+                    setIsCheckingUsername(false);
+                  }
+                }
+              }}
             />
-            <Text style={styles.inputHint}>Your username will appear as @{username || 'username'}</Text>
+            {usernameError ? (
+              <Text style={[styles.inputHint, { color: '#ef4444' }]}>{usernameError}</Text>
+            ) : (
+              <Text style={styles.inputHint}>
+                {isCheckingUsername ? 'Checking availability...' : `Your username will appear as @${username || 'username'}`}
+              </Text>
+            )}
           </View>
 
             <View style={styles.inputContainer}>
@@ -158,10 +270,33 @@ export default function SignupScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current?.focus()}
+                onSubmitEditing={() => phoneRef.current?.focus()}
                 onFocus={() => setEmailFocused(true)}
                 onBlur={() => setEmailFocused(false)}
               />
+              <Text style={styles.inputHint}>Order confirmations will be sent here</Text>
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Phone Number</Text>
+              <TextInput
+                ref={phoneRef}
+                style={[styles.input, { 
+                  borderColor: phoneFocused ? '#000' : '#d1d5db',
+                  borderWidth: phoneFocused ? 3 : 1
+                }]}
+                placeholder="+27 65 123 4567"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                onFocus={() => setPhoneFocused(true)}
+                onBlur={() => setPhoneFocused(false)}
+              />
+              <Text style={styles.inputHint}>This is the number drivers will contact during delivery</Text>
             </View>
 
             <View style={[styles.inputContainer, { position: 'relative' }]}>
@@ -257,6 +392,7 @@ export default function SignupScreen() {
             </Link>
           </View>
         </View>
+        </ScrollView>
     </KeyboardAvoidingView>
     </TouchableWithoutFeedback>
   );
@@ -267,10 +403,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'white',
   },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
+  },
   content: {
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingTop: 20,
   },
   header: {
     marginBottom: 32,

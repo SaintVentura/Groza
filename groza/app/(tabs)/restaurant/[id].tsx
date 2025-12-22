@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -23,27 +23,99 @@ const categories = ['All', 'Vegetables', 'Fruits'];
 const { width } = Dimensions.get('window');
 
 export default function VendorScreen() {
-  const { id, from } = useLocalSearchParams();
+  const { id, from, productId } = useLocalSearchParams();
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const { addToCart, removeFromCart, updateCartItemQuantity, cart, favourites = [], addFavourite, removeFavourite } = useStore();
+  const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
+  const { addToCart, removeFromCart, updateCartItemQuantity, cart, favourites = [], addFavourite, removeFavourite, isAuthenticated, getProductRating, getVendorRating, addProductRating, productRatings } = useStore();
+  
+  // Find the vendor by id from the vendors list
+  const vendorData = vendors.find(v => v.id === id);
+  const productIds = vendorData?.products.map(p => p.id) || [];
+  
+  // Load ratings for this vendor's products
+  useEffect(() => {
+    if (productIds.length > 0) {
+      const loadRatings = async () => {
+        try {
+          const { getVendorProductRatings } = await import('@/services/ratings');
+          const currentRatings = useStore.getState().productRatings;
+          const ratings = await getVendorProductRatings(productIds);
+          ratings.forEach((rating) => {
+            const exists = currentRatings.some(
+              (r) => r.productId === rating.productId && r.customerId === rating.customerId
+            );
+            if (!exists) {
+              useStore.getState().addProductRating(rating);
+            }
+          });
+        } catch (error) {
+          console.error('Failed to load ratings:', error);
+        }
+      };
+      loadRatings();
+    }
+  }, [productIds.join(',')]);
   const colorSchemeRaw = useColorScheme();
   const colorScheme = colorSchemeRaw === 'dark' ? 'dark' : 'light';
   const [removedProductIds, setRemovedProductIds] = useState<string[]>([]);
   // Add localQuantities state for items not in cart
   const [localQuantities, setLocalQuantities] = useState<{ [productId: string]: number }>({});
   const { scrollViewRef, handleScroll } = useScrollPreservation(`restaurant-${id}`);
-
-  // Find the vendor by id from the vendors list
-  const vendorData = vendors.find(v => v.id === id);
+  const productRefs = useRef<{ [key: string]: View | null }>({});
 
   // Animation values
   const slideAnim = useRef(new Animated.Value(100)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const menuItemAnims = useRef<{ [key: string]: Animated.Value }>({}).current;
+
+  // Handle product highlighting when coming from explore
+  useEffect(() => {
+    if (productId && vendorData && scrollViewRef.current) {
+      // First, reset scroll and category
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+      setSelectedCategory('All');
+      setHighlightedProductId(null);
+      
+      // Wait a bit for reset to complete, then apply highlighting
+      setTimeout(() => {
+        const product = vendorData.products.find(p => p.id === productId);
+        if (product) {
+          // Set category to match product
+          setSelectedCategory(product.category);
+          setHighlightedProductId(productId);
+          
+          // Scroll to product after a delay to ensure layout is ready
+          setTimeout(() => {
+            const productRef = productRefs.current[productId];
+            if (productRef && scrollViewRef.current) {
+              productRef.measureLayout(
+                scrollViewRef.current as any,
+                (x, y) => {
+                  scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 100), animated: true });
+                },
+                () => {}
+              );
+            }
+          }, 500);
+          
+          // Remove highlight after 3 seconds
+          setTimeout(() => {
+            setHighlightedProductId(null);
+          }, 3000);
+        }
+      }, 100);
+    }
+  }, [productId, vendorData]);
 
   // Animation effects
   useFocusEffect(
     React.useCallback(() => {
+      // Reset scroll position and filters when page opens
+      if (scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({ y: 0, animated: false });
+      }
+      setSelectedCategory('All');
+      setHighlightedProductId(null);
+      
       // Slide up animation
       slideAnim.setValue(100);
       fadeAnim.setValue(0);
@@ -61,22 +133,7 @@ export default function VendorScreen() {
         }),
       ]).start();
 
-      // Staggered menu item animations
-      const products = vendorData?.products || [];
-      products.forEach((item, index) => {
-        if (!menuItemAnims[item.id]) {
-          menuItemAnims[item.id] = new Animated.Value(0);
-        }
-        menuItemAnims[item.id].setValue(0);
-        
-        setTimeout(() => {
-          Animated.timing(menuItemAnims[item.id], {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }).start();
-        }, 400 + (index * 100));
-      });
+      // No product animations - products stay in place
 
       return () => {
         // Cleanup animation on unmount
@@ -94,9 +151,13 @@ export default function VendorScreen() {
     );
   }
 
-  const filteredProducts = selectedCategory === 'All'
-    ? vendorData.products || []
-    : (vendorData.products || []).filter(item => item.category === selectedCategory);
+  const filteredProducts = useMemo(() => {
+    const products = vendorData.products || [];
+    if (selectedCategory === 'All') {
+      return products;
+    }
+    return products.filter(item => item.category === selectedCategory);
+  }, [selectedCategory, vendorData.products]);
 
   const handleAddToCart = (item: any, quantity: number) => {
     const cartItem = {
@@ -183,8 +244,10 @@ export default function VendorScreen() {
       <ScrollView 
         ref={scrollViewRef}
         style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 80 }}
         onScroll={handleScroll}
         scrollEventThrottle={16}
+        removeClippedSubviews={false}
       >
         <View style={{ position: 'relative', marginTop: 0, paddingTop: 0 }}>
           <Image
@@ -195,25 +258,54 @@ export default function VendorScreen() {
         </View>
         {/* Vendor Info Card */}
         <View style={[styles.vendorInfoCard, { backgroundColor: Colors[colorScheme].background }]}>
-          <Text style={[styles.vendorTagline, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.tagline}</Text>
+          <View style={styles.vendorHeader}>
+            <Image
+              source={{ uri: vendorData.image }}
+              style={styles.vendorLogo}
+              resizeMode="cover"
+            />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={[styles.vendorName, { color: Colors[colorScheme].text }]}>{vendorData.name}</Text>
+              <Text style={[styles.vendorTagline, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.tagline}</Text>
+            </View>
+          </View>
           <View style={styles.vendorStats}>
             <View style={styles.statItem}>
               <Ionicons name="star" size={16} color="#fbbf24" />
-              <Text style={[styles.statText, { color: Colors[colorScheme].text }]}>{vendorData.rating}</Text>
+              <Text style={[styles.statText, { color: Colors[colorScheme].text }]}>
+                {(() => {
+                  const productIds = vendorData.products.map(p => p.id);
+                  const calculatedRating = getVendorRating(vendorData.id, productIds);
+                  return calculatedRating > 0 ? calculatedRating.toFixed(1) : vendorData.rating.toFixed(1);
+                })()}
+              </Text>
             </View>
-            <View style={styles.statItem}>
-              <Ionicons name="time-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-              <Text style={[styles.statText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.deliveryEstimate}</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-              <Text style={[styles.statText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.distance}</Text>
-            </View>
+            {isAuthenticated && (
+              <>
+                <View style={styles.statItem}>
+                  <Ionicons name="time-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                  <Text style={[styles.statText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.deliveryEstimate}</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                  <Text style={[styles.statText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.distance}</Text>
+                </View>
+              </>
+            )}
           </View>
-          <View style={styles.deliveryInfo}>
-            <Ionicons name="car-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-            <Text style={[styles.deliveryText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.deliveryFee} delivery</Text>
-          </View>
+          {isAuthenticated ? (
+            <View style={styles.deliveryInfo}>
+              <Ionicons name="car-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.deliveryText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.deliveryFee} delivery</Text>
+            </View>
+          ) : (
+            <View style={[styles.deliveryInfo, { paddingVertical: 12, paddingHorizontal: 12, backgroundColor: colorScheme === 'dark' ? '#1a1a1a' : '#f5f5f5', borderRadius: 8, marginTop: 8 }]}>
+              <Ionicons name="information-circle-outline" size={18} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.deliveryText, { color: colorScheme === 'dark' ? '#aaa' : '#666', marginLeft: 8, flex: 1, fontSize: 13, lineHeight: 18 }]}>
+                Sign Up to see Delivery Price, Order Time and Distance.
+              </Text>
+            </View>
+          )}
         </View>
         {/* Categories Card */}
         <View style={[styles.categoriesCard, { backgroundColor: Colors[colorScheme].background }]}>
@@ -241,7 +333,7 @@ export default function VendorScreen() {
           </ScrollView>
         </View>
         {/* Menu Items */}
-        <View style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
+        <View style={{ paddingVertical: 16 }}>
           {/* Show message and icon if no items in selected category */}
           {selectedCategory === 'Vegetables' && filteredProducts.length === 0 && (
             <View style={{ alignItems: 'center', marginVertical: 60 }}>
@@ -259,99 +351,103 @@ export default function VendorScreen() {
             const cartItem = cart.find(ci => ci.id === item.id);
             const isAdded = !!cartItem;
             const quantity = isAdded ? cartItem.quantity : (localQuantities[item.id] || 1);
-            const itemAnim = menuItemAnims[item.id] || new Animated.Value(1);
+            const isHighlighted = highlightedProductId === item.id;
             
             return (
-              <Animated.View 
-                key={item.id} 
+              <View 
+                ref={(ref) => {
+                  if (ref) {
+                    productRefs.current[item.id] = ref;
+                  }
+                }}
+                key={item.id}
                 style={[
                   styles.menuItemCard,
                   { 
-                    backgroundColor: Colors[colorScheme].background,
-                    transform: [
-                      {
-                        translateY: itemAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [50, 0],
-                        }),
-                      },
-                      {
-                        scale: itemAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.9, 1],
-                        }),
-                      },
-                    ],
-                    opacity: itemAnim,
+                    backgroundColor: isHighlighted ? '#fff8e1' : Colors[colorScheme].background,
                   }
                 ]}
+                collapsable={false}
+                removeClippedSubviews={false}
               >
-                <View style={{ flexDirection: 'row' }}>
+                <View style={{ flexDirection: 'row' }} collapsable={false}>
                   <Image
                     source={{ uri: item.image }}
-                    style={{ width: 80, height: 80, borderRadius: 12 }}
+                    style={{ width: 96, height: 120, borderRadius: 12 }}
                     resizeMode="cover"
                   />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
+                  <View style={{ flex: 1, marginLeft: 12 }} collapsable={false}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18 }}>{item.name}</Text>
+                        <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18, marginBottom: 4 }}>{item.name}</Text>
                         {item.description && (
-                          <Text style={{ color: colorScheme === 'dark' ? '#aaa' : '#666', fontSize: 14, marginTop: 4 }}>{item.description}</Text>
+                          <Text style={{ color: colorScheme === 'dark' ? '#aaa' : '#666', fontSize: 14, marginBottom: 8 }}>{item.description}</Text>
                         )}
+                        {(() => {
+                          const avgRating = getProductRating(item.id);
+                          return (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                              <Ionicons name={avgRating > 0 ? "star" : "star-outline"} size={14} color={avgRating > 0 ? "#fbbf24" : (colorScheme === 'dark' ? '#666' : '#aaa')} />
+                              <Text style={{ color: avgRating > 0 ? Colors[colorScheme].text : (colorScheme === 'dark' ? '#666' : '#aaa'), fontSize: 14, marginLeft: 4, fontWeight: '500' }}>
+                                {avgRating > 0 ? avgRating.toFixed(1) : 'No ratings'}
+                              </Text>
+                            </View>
+                          );
+                        })()}
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18 }}>R{item.price.toFixed(2)}</Text>
                       </View>
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, justifyContent: 'space-between' }}>
-                      {removedProductIds.includes(item.id) ? (
-                        <View
-                          style={{
-                            backgroundColor: '#e53935',
-                            borderWidth: 0,
-                            paddingHorizontal: 16,
-                            paddingLeft: 12, // left padding set to 12
-                            height: 33, // increased by 0.5
-                            borderRadius: 8,
-                            minWidth: 96, // thinner
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexDirection: 'row',
-                          }}
-                        >
-                          <Ionicons name="trash" size={18} color="#fff" style={{ marginRight: 4, marginLeft: 0 }} />
-                          <Text style={{ color: '#fff', fontWeight: '800' }}>Removed</Text>
-                        </View>
-                      ) : null}
-                      {!removedProductIds.includes(item.id) && (
-                        <TouchableOpacity
-                          style={{
-                            backgroundColor: isAdded ? '#22c55e' : '#000',
-                            borderWidth: 0,
-                            paddingHorizontal: 16,
-                            paddingVertical: 8,
-                            borderRadius: 8,
-                            minHeight: 32, // shorter
-                            minWidth: 96, // thinner
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            opacity: 1,
-                          }}
-                          onPress={() => {
-                            if (!isAdded) {
-                              handleAddToCart(item, quantity);
-                            } else {
-                              handleRemoveFromCart(item);
-                            }
-                          }}
-                        >
-                          <Text style={{ color: '#fff', fontWeight: '600' }}>
-                            {isAdded ? 'Added!' : 'Add to Cart'}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', opacity: removedProductIds.includes(item.id) ? 0.4 : 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, justifyContent: 'space-between' }} collapsable={false}>
+                      <View style={{ width: 110, height: 36, alignItems: 'center', justifyContent: 'center' }} collapsable={false}>
+                        {removedProductIds.includes(item.id) ? (
+                          <View
+                            style={{
+                              backgroundColor: '#e53935',
+                              borderWidth: 0,
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                              borderRadius: 8,
+                              width: 110,
+                              height: 36,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexDirection: 'row',
+                            }}
+                          >
+                            <Ionicons name="trash" size={18} color="#fff" style={{ marginRight: 4, marginLeft: 0 }} />
+                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }} numberOfLines={1}>Removed</Text>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: isAdded ? '#22c55e' : '#000',
+                              borderWidth: 0,
+                              paddingHorizontal: 12,
+                              paddingVertical: 10,
+                              borderRadius: 8,
+                              width: 110,
+                              height: 36,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              opacity: 1,
+                            }}
+                            onPress={() => {
+                              if (!isAdded) {
+                                handleAddToCart(item, quantity);
+                              } else {
+                                handleRemoveFromCart(item);
+                              }
+                            }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }} numberOfLines={1}>
+                              {isAdded ? 'Added!' : 'Add to Cart'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', opacity: removedProductIds.includes(item.id) ? 0.4 : 1, width: 104 }} collapsable={false}>
                         <TouchableOpacity
                           onPress={() => {
                             if (isAdded) {
@@ -376,7 +472,7 @@ export default function VendorScreen() {
                         >
                           <Text style={{ fontSize: 18, color: '#000', textAlign: 'center', textAlignVertical: 'center', lineHeight: 32 }}>-</Text>
                         </TouchableOpacity>
-                        <Text style={{ fontSize: 18, minWidth: 24, textAlign: 'center', color: '#000' }}>{quantity}</Text>
+                        <Text style={{ fontSize: 18, width: 24, textAlign: 'center', color: '#000' }}>{quantity}</Text>
                         <TouchableOpacity
                           onPress={() => {
                             if (isAdded) {
@@ -404,7 +500,7 @@ export default function VendorScreen() {
                     </View>
                   </View>
                 </View>
-              </Animated.View>
+              </View>
             );
           })}
         </View>
@@ -455,10 +551,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
-  vendorTagline: {
-    fontSize: 16,
+  vendorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 16,
-    lineHeight: 22,
+  },
+  vendorLogo: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#f0f0f0',
+  },
+  vendorName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  vendorTagline: {
+    fontSize: 14,
+    lineHeight: 20,
   },
   vendorStats: {
     flexDirection: 'row',
@@ -520,5 +632,6 @@ const styles = StyleSheet.create({
     elevation: 6,
     borderWidth: 1,
     borderColor: '#f0f0f0',
+    minHeight: 152, // Increased to accommodate all content consistently
   },
 }); 

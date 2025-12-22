@@ -6,11 +6,62 @@ import { useColorScheme } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
+import type { Swipeable as SwipeableType } from 'react-native-gesture-handler';
 import { navigateBack } from '../../utils/navigation';
 import { useScrollPreservation } from '../../hooks/useScrollPreservation';
 import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
+
+const FavouriteItem = ({ item, onRemove, onPress }: { item: any; onRemove: () => void; onPress: () => void }) => {
+  const swipeableRef = useRef<SwipeableType | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <Swipeable
+      ref={swipeableRef}
+      renderRightActions={() => (
+        <TouchableOpacity
+          style={styles.trashButton}
+          onPress={() => {
+            swipeableRef.current?.close();
+            onRemove();
+          }}
+        >
+          <Ionicons name="trash" size={28} color="#fff" />
+        </TouchableOpacity>
+      )}
+      onSwipeableOpen={() => setIsOpen(true)}
+      onSwipeableClose={() => setIsOpen(false)}
+    >
+      <TouchableOpacity
+        style={styles.restaurantCard}
+        onPress={() => {
+          if (!isOpen) {
+            onPress();
+          }
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={styles.restaurantImageContainer}>
+          <Image
+            source={{ uri: item.image || 'https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=400&q=80' }}
+            style={styles.restaurantImage}
+            resizeMode="cover"
+          />
+          <View style={[styles.ratingBadge, { flexDirection: 'row', alignItems: 'center' }]}> 
+            <Ionicons name="star" size={12} color="#FFD700" style={{ marginRight: 2 }} />
+            <Text style={styles.ratingText}>{item.rating}</Text>
+          </View>
+        </View>
+        <View style={styles.restaurantInfo}>
+          <Text style={styles.restaurantName}>{item.name}</Text>
+          <Text style={styles.restaurantCuisine}>{item.tagline}</Text>
+        </View>
+      </TouchableOpacity>
+    </Swipeable>
+  );
+};
 
 export default function FavouritesScreen() {
   const { favourites = [], removeFavourite } = useStore();
@@ -36,7 +87,7 @@ export default function FavouritesScreen() {
       }),
     ]).start(() => {
       // Navigate after animation completes
-      router.push('/(tabs)/profile');
+      router.back();
     });
   };
 
@@ -135,49 +186,17 @@ export default function FavouritesScreen() {
         <Text style={[styles.headerTitle, { color: Colors[colorScheme].text }]}>Saved Vendors</Text>
       </View>
       <FlatList
-        ref={(node) => {
-          // @ts-ignore
-          scrollViewRef.current = node;
-        }}
         data={favourites}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16 }}
-        renderItem={({ item }) => (
-          <Swipeable
-            renderRightActions={() => (
-              <TouchableOpacity
-                style={styles.trashButton}
-                onPress={() => removeFavourite(item.id)}
-              >
-                <Ionicons name="trash" size={28} color="#fff" />
-              </TouchableOpacity>
-            )}
-          >
-            <TouchableOpacity
-              style={styles.restaurantCard}
-              onPress={() => router.push(`/restaurant/${item.id}?from=favourites`)}
-            >
-              <View style={styles.restaurantImageContainer}>
-                <Image
-                  source={{ uri: item.image || 'https://images.unsplash.com/photo-1502741338009-cac2772e18bc?auto=format&fit=crop&w=400&q=80' }}
-                  style={styles.restaurantImage}
-                  resizeMode="cover"
-                />
-                <View style={[styles.ratingBadge, { flexDirection: 'row', alignItems: 'center' }]}> 
-                  <Ionicons name="star" size={12} color="#FFD700" style={{ marginRight: 2 }} />
-                  <Text style={styles.ratingText}>{item.rating}</Text>
-                </View>
-              </View>
-              <View style={styles.restaurantInfo}>
-                <Text style={styles.restaurantName}>{item.name}</Text>
-                <Text style={styles.restaurantCuisine}>{item.tagline}</Text>
-              </View>
-            </TouchableOpacity>
-          </Swipeable>
-        )}
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
+        renderItem={({ item }) => (
+          <FavouriteItem
+            item={item}
+            onRemove={() => removeFavourite(item.id)}
+            onPress={() => router.push(`/(tabs)/restaurant/${item.id}?from=favourites`)}
+          />
+        )}
       />
       </Animated.View>
     </View>

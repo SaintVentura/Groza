@@ -10,6 +10,7 @@ import {
   Animated,
   TextInput,
   Dimensions,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,11 +36,12 @@ const Colors = {
 };
 
 export default function CartScreen() {
-  const { cart, cartTotal, removeFromCart, updateCartItemQuantity, clearCart } = useStore();
+  const { cart, cartTotal, removeFromCart, updateCartItemQuantity, clearCart, isAuthenticated } = useStore();
   const colorSchemeRaw = useColorScheme();
   const colorScheme = colorSchemeRaw === 'dark' ? 'dark' : 'light';
   const [orderNote, setOrderNote] = useState('');
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [showSignupModal, setShowSignupModal] = useState(false);
   const animatedValues = useRef<{ [id: string]: Animated.Value }>({}).current;
 
   // Animations for header, line, and order note
@@ -48,18 +50,29 @@ export default function CartScreen() {
   const emptyPop = useRef(new Animated.Value(cart.length === 0 ? 1 : 0)).current;
 
   useEffect(() => {
-    if (cart.length === 0) {
-      Animated.parallel([
-        Animated.timing(headerFade, { toValue: 0, duration: 250, useNativeDriver: true }),
-        Animated.timing(orderNoteFade, { toValue: 0, duration: 250, useNativeDriver: true }),
-        Animated.spring(emptyPop, { toValue: 1, useNativeDriver: true, friction: 6 }),
-      ]).start();
+    // Immediately set values if cart has items on mount
+    if (cart.length > 0) {
+      headerFade.setValue(1);
+      orderNoteFade.setValue(1);
+      emptyPop.setValue(0);
     } else {
-      Animated.parallel([
-        Animated.timing(headerFade, { toValue: 1, duration: 250, useNativeDriver: true }),
-        Animated.timing(orderNoteFade, { toValue: 1, duration: 250, useNativeDriver: true }),
-        Animated.timing(emptyPop, { toValue: 0, duration: 100, useNativeDriver: true }),
-      ]).start();
+      headerFade.setValue(0);
+      orderNoteFade.setValue(0);
+      emptyPop.setValue(1);
+    }
+  }, []); // Run once on mount
+
+  useEffect(() => {
+    if (cart.length === 0) {
+      // Immediately show empty state when cart becomes empty (no animation delay)
+      headerFade.setValue(0);
+      orderNoteFade.setValue(0);
+      emptyPop.setValue(1);
+    } else {
+      // Immediately set to 1 when cart has items (no animation delay)
+      headerFade.setValue(1);
+      orderNoteFade.setValue(1);
+      emptyPop.setValue(0);
     }
   }, [cart.length]);
 
@@ -126,7 +139,13 @@ export default function CartScreen() {
       Alert.alert('Empty Cart', 'Please add items to your cart before checkout');
       return;
     }
-    Alert.alert('Coming Soon', 'Checkout feature will be available soon!');
+    
+    if (!isAuthenticated) {
+      setShowSignupModal(true);
+      return;
+    }
+    
+    router.push('/checkout');
   };
 
   const handleRemoveItem = (itemId: string) => {
@@ -145,8 +164,13 @@ export default function CartScreen() {
     });
   };
 
+
   const handleClearCart = () => {
     clearCart();
+    // Ensure empty cart view shows immediately
+    headerFade.setValue(0);
+    orderNoteFade.setValue(0);
+    emptyPop.setValue(1);
   };
 
   if (cart.length === 0) {
@@ -202,14 +226,18 @@ export default function CartScreen() {
           <Text style={[styles.cartHeading, { color: Colors[colorScheme].text }]}>Cart</Text>
         </View>
       {/* Header */}
-      <Animated.View style={[styles.header, { backgroundColor: Colors[colorScheme].background, opacity: headerFade }]}>
-        <Text style={[styles.headerTitle, { color: Colors[colorScheme].text }]}>Ready for Delivery</Text>
-        <TouchableOpacity onPress={handleClearCart}>
-          <Text style={[styles.clearAllText, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>Clear All</Text>
-        </TouchableOpacity>
-      </Animated.View>
-      {/* White line under header */}
-      <Animated.View style={{ height: 1, backgroundColor: '#f0f0f0', opacity: headerFade }} />
+      {cart.length > 0 && (
+        <>
+          <View style={[styles.header, { backgroundColor: Colors[colorScheme].background }]}>
+            <Text style={[styles.headerTitle, { color: Colors[colorScheme].text }]}>Ready for Delivery</Text>
+            <TouchableOpacity onPress={handleClearCart}>
+              <Text style={[styles.clearAllText, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}>Clear All</Text>
+            </TouchableOpacity>
+          </View>
+          {/* White line under header */}
+          <View style={{ height: 1, backgroundColor: '#f0f0f0' }} />
+        </>
+      )}
       <ScrollView 
         ref={scrollViewRef}
         style={styles.scrollView} 
@@ -347,6 +375,47 @@ export default function CartScreen() {
         </TouchableOpacity>
       </View>
       </Animated.View>
+
+      {/* Sign Up Required Modal */}
+      <Modal
+        visible={showSignupModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSignupModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Close X button */}
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowSignupModal(false)}
+            >
+              <Ionicons name="close" size={24} color="#000" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Sign Up Required</Text>
+            <Text style={styles.modalText}>
+              Sign up to proceed to checkout and start ordering fresh groceries from local vendors.
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={() => setShowSignupModal(false)}
+              >
+                <Text style={styles.modalButtonTextSecondary}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={() => {
+                  setShowSignupModal(false);
+                  router.push('/(auth)/auth-select');
+                }}
+              >
+                <Text style={styles.modalButtonTextPrimary}>Sign Up</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -582,6 +651,68 @@ const styles = StyleSheet.create({
   checkoutButtonText: {
     color: '#fff',
     fontSize: 18,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 20,
+    width: '90%',
+    maxWidth: 400,
+    position: 'relative',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    padding: 4,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#000',
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#f0f0f0',
+  },
+  modalButtonTextPrimary: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalButtonTextSecondary: {
+    color: '#000',
+    fontSize: 16,
     fontWeight: '600',
   },
 }); 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Switch, StyleSheet, Animated, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
+import { View, Text, Switch, StyleSheet, Animated, TouchableOpacity, ScrollView, Dimensions, Alert } from 'react-native';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,15 +7,17 @@ import { router } from 'expo-router';
 import { navigateBack } from '../../utils/navigation';
 import { useScrollPreservation } from '../../hooks/useScrollPreservation';
 import { useFocusEffect } from '@react-navigation/native';
+import { useStore } from '@/store/useStore';
 
 const { width } = Dimensions.get('window');
 
 export default function NotificationsScreen() {
   const colorSchemeRaw = useColorScheme();
   const colorScheme = colorSchemeRaw === 'dark' ? 'dark' : 'light';
+  const { user } = useStore();
   const [pushEnabled, setPushEnabled] = useState(true);
-  const [emailEnabled, setEmailEnabled] = useState(false);
-  const [smsEnabled, setSMSEnabled] = useState(false);
+  const [emailEnabled, setEmailEnabled] = useState(true); // Auto-enabled after signup
+  const [smsEnabled, setSMSEnabled] = useState(true); // Auto-enabled after signup
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const translateY = React.useRef(new Animated.Value(24)).current;
   const slideAnim = React.useRef(new Animated.Value(100)).current;
@@ -102,21 +104,71 @@ export default function NotificationsScreen() {
             <Text style={[styles.label, { color: Colors[colorScheme].text }]}>Push Notifications</Text>
             <Text style={[styles.description, { color: colorScheme === 'dark' ? '#9ca3af' : '#6b7280' }]}>Receive real-time alerts about orders, promotions, and important updates.</Text>
           </View>
-          <Switch value={pushEnabled} onValueChange={setPushEnabled} />
+          <Switch 
+            value={pushEnabled} 
+            onValueChange={async (value) => {
+              setPushEnabled(value);
+              if (value) {
+                try {
+                  const Notifications = await import('expo-notifications');
+                  const getPermissionsFn = Notifications?.default?.getPermissionsAsync || Notifications?.getPermissionsAsync;
+                  const requestPermissionsFn = Notifications?.default?.requestPermissionsAsync || Notifications?.requestPermissionsAsync;
+                  
+                  if (typeof getPermissionsFn === 'function' && typeof requestPermissionsFn === 'function') {
+                    const { status: existingStatus } = await getPermissionsFn();
+                    if (existingStatus !== 'granted') {
+                      const { status } = await requestPermissionsFn();
+                      if (status !== 'granted') {
+                        setPushEnabled(false);
+                        Alert.alert(
+                          'Permission Required', 
+                          'Please enable notifications in your device settings to receive push notifications.'
+                        );
+                      }
+                    }
+                  } else {
+                    setPushEnabled(false);
+                    Alert.alert(
+                      'Notifications Unavailable',
+                      'Push notifications require a development build and are not available in Expo Go. Build a development version to enable this feature.'
+                    );
+                  }
+                } catch (error) {
+                  setPushEnabled(false);
+                  Alert.alert(
+                    'Notifications Unavailable',
+                    'Push notifications require a development build and are not available in Expo Go. Build a development version to enable this feature.'
+                  );
+                }
+              }
+            }} 
+          />
         </View>
-        <View style={styles.row}>
+        <View style={[styles.row, !user && styles.rowDisabled]}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.label, { color: Colors[colorScheme].text }]}>Email Notifications</Text>
-            <Text style={[styles.description, { color: colorScheme === 'dark' ? '#9ca3af' : '#6b7280' }]}>Get receipts, order summaries, and occasional news delivered to your inbox.</Text>
+            <Text style={[styles.label, { color: !user ? '#ccc' : Colors[colorScheme].text }]}>Email Notifications</Text>
+            <Text style={[styles.description, { color: !user ? '#ccc' : (colorScheme === 'dark' ? '#9ca3af' : '#6b7280') }]}>Get receipts, order summaries, and occasional news delivered to your inbox.</Text>
           </View>
-          <Switch value={emailEnabled} onValueChange={setEmailEnabled} />
+          <Switch 
+            value={emailEnabled} 
+            onValueChange={setEmailEnabled}
+            disabled={!user}
+            trackColor={{ false: !user ? '#e0e0e0' : '#e0e0e0', true: !user ? '#ccc' : '#000' }}
+            thumbColor={!user ? '#ccc' : '#fff'}
+          />
         </View>
-        <View style={styles.row}>
+        <View style={[styles.row, !user && styles.rowDisabled]}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.label, { color: Colors[colorScheme].text }]}>SMS Notifications</Text>
-            <Text style={[styles.description, { color: colorScheme === 'dark' ? '#9ca3af' : '#6b7280' }]}>Get time‑sensitive texts for delivery status and driver arrival.</Text>
+            <Text style={[styles.label, { color: !user ? '#ccc' : Colors[colorScheme].text }]}>SMS Notifications</Text>
+            <Text style={[styles.description, { color: !user ? '#ccc' : (colorScheme === 'dark' ? '#9ca3af' : '#6b7280') }]}>Get time‑sensitive texts for delivery status and driver arrival.</Text>
           </View>
-          <Switch value={smsEnabled} onValueChange={setSMSEnabled} />
+          <Switch 
+            value={smsEnabled} 
+            onValueChange={setSMSEnabled}
+            disabled={!user}
+            trackColor={{ false: !user ? '#e0e0e0' : '#e0e0e0', true: !user ? '#ccc' : '#000' }}
+            thumbColor={!user ? '#ccc' : '#fff'}
+          />
         </View>
       </View>
       </ScrollView>
@@ -181,5 +233,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
     lineHeight: 18,
+  },
+  rowDisabled: {
+    opacity: 0.5,
   },
 }); 

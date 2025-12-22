@@ -46,7 +46,7 @@ export default function OrdersScreen() {
       }),
     ]).start(() => {
       // Navigate after animation completes
-      router.push('/(tabs)/profile');
+      router.back();
     });
   };
 
@@ -148,7 +148,7 @@ export default function OrdersScreen() {
           <Ionicons name="location-outline" size={16} color="#6b7280" />
           <Text style={styles.cardFooterAddress}>{item.deliveryAddress.substring(0, 30)}...</Text>
         </View>
-        <TouchableOpacity style={styles.cardFooterButton} onPress={() => router.push(`/restaurant/${item.id}?from=orders`)}>
+        <TouchableOpacity style={styles.cardFooterButton} onPress={() => router.push(`/order-details?orderId=${item.id}`)}>
           <Text style={styles.cardFooterButtonText}>View Details</Text>
         </TouchableOpacity>
       </View>

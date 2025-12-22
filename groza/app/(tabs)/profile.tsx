@@ -18,9 +18,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import { navigateBack } from '../../utils/navigation';
 import { useScrollPreservation } from '../../hooks/useScrollPreservation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { signOutUser } from '@/services/auth';
 
 export default function ProfileScreen() {
-  const { user, setUser, setAuthenticated, orders, favourites = [] } = useStore();
+  const { user, setUser, setAuthenticated, orders, favourites = [], isAuthenticated } = useStore();
   const [profileImage, setProfileImage] = React.useState(user?.avatar || null);
   const [bannerImage, setBannerImage] = React.useState<string | null>(null);
   const [showUsernameModal, setShowUsernameModal] = useState(false);
@@ -32,30 +34,36 @@ export default function ProfileScreen() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(24)).current;
-  const versionFadeAnim = useRef(new Animated.Value(0)).current; // NEW: for version text
+  const slideAnim = useRef(new Animated.Value(100)).current;
+  const versionFadeAnim = useRef(new Animated.Value(0)).current;
   const isFirstLoad = useRef(true);
   const [animTrigger, setAnimTrigger] = useState(0);
   useFocusEffect(
     React.useCallback(() => {
       setAnimTrigger((t) => t + 1);
+      slideAnim.setValue(100);
       fadeAnim.setValue(0);
-      versionFadeAnim.setValue(0); // NEW: reset version text fade
+      versionFadeAnim.setValue(0);
       if (isFirstLoad.current) {
         translateY.setValue(24);
         Animated.parallel([
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
           Animated.timing(fadeAnim, {
             toValue: 1,
-            duration: 600,
+            duration: 300,
             useNativeDriver: true,
           }),
           Animated.timing(translateY, {
             toValue: 0,
-            duration: 600,
+            duration: 300,
             useNativeDriver: true,
           }),
         ]).start(() => {
           isFirstLoad.current = false;
-          // NEW: Fade in version text after main fade-in
           Animated.timing(versionFadeAnim, {
             toValue: 1,
             duration: 400,
@@ -64,20 +72,32 @@ export default function ProfileScreen() {
         });
       } else {
         translateY.setValue(0);
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }).start(() => {
-          // NEW: Fade in version text after main fade-in
+        Animated.parallel([
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
           Animated.timing(versionFadeAnim, {
             toValue: 1,
             duration: 400,
-          useNativeDriver: true,
-        }).start();
+            useNativeDriver: true,
+          }).start();
         });
       }
-    }, [fadeAnim, translateY, versionFadeAnim])
+
+
+      return () => {
+        slideAnim.setValue(100);
+        fadeAnim.setValue(0);
+      };
+    }, [slideAnim, fadeAnim, translateY, versionFadeAnim, user, isAuthenticated])
   );
 
   const pickImage = async (setter: (uri: string) => void) => {
@@ -134,6 +154,8 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Call Firebase signOut to persist the sign-out state across app reloads
+              await signOutUser();
               setUser(null);
               setAuthenticated(false);
               router.replace('/(auth)/login');
@@ -156,43 +178,61 @@ export default function ProfileScreen() {
     {
       icon: 'heart-outline',
       title: 'Favourites',
-      subtitle: 'Your saved restaurants',
+      subtitle: 'Your saved vendors',
       onPress: () => router.push('/(tabs)/favourites'),
     },
     {
       icon: 'location-outline',
       title: 'Delivery Addresses',
       subtitle: 'Manage your addresses',
-      onPress: () => Alert.alert('Coming Soon', 'This feature will be available soon!'),
+      onPress: () => router.push('/(tabs)/addresses'),
     },
     {
       icon: 'card-outline',
       title: 'Payment Methods',
       subtitle: 'Manage your cards',
-      onPress: () => Alert.alert('Coming Soon', 'This feature will be available soon!'),
+      onPress: () => router.push('/(tabs)/payments'),
     },
     {
       icon: 'notifications-outline',
       title: 'Notifications',
       subtitle: 'Manage your notification preferences',
-      onPress: () => router.push('/notifications'),
+      onPress: () => router.push('/(tabs)/notifications'),
     },
     {
       icon: 'help-circle-outline',
       title: 'Help & Support',
       subtitle: 'Get help with your orders',
-      onPress: () => Alert.alert('Coming Soon', 'This feature will be available soon!'),
+      onPress: () => router.push('/(tabs)/support'),
     },
     {
       icon: 'settings-outline',
       title: 'Settings',
       subtitle: 'App preferences',
-      onPress: () => Alert.alert('Coming Soon', 'This feature will be available soon!'),
+      onPress: () => router.push('/(tabs)/settings'),
+    },
+    {
+      icon: 'document-text-outline',
+      title: 'Privacy Policy',
+      subtitle: 'View our privacy policy',
+      onPress: () => router.push('/(tabs)/privacy'),
+    },
+    {
+      icon: 'document-text-outline',
+      title: 'Terms of Service',
+      subtitle: 'Read terms and conditions',
+      onPress: () => router.push('/(tabs)/terms'),
+    },
+    {
+      icon: 'information-circle-outline',
+      title: 'About',
+      subtitle: 'Learn more about Groza',
+      onPress: () => router.push('/(tabs)/about'),
     },
   ];
 
   return (
-    <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ translateY }] }}>
+    <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
       <ScrollView 
         ref={scrollViewRef}
         style={[styles.container, { backgroundColor: '#fff', flex: 1 }]} 
@@ -262,7 +302,7 @@ export default function ProfileScreen() {
               </Text>
               <TouchableOpacity
                 style={{ backgroundColor: '#000', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 32, marginTop: 8, marginBottom: 32 }}
-                onPress={() => router.replace('/(auth)/login')}
+                onPress={() => router.replace('/(auth)/auth-select')}
               >
                 <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>Sign Up or Login</Text>
               </TouchableOpacity>
@@ -294,45 +334,39 @@ export default function ProfileScreen() {
                 <Text style={styles.statNumber}>5</Text>
                 <Text style={styles.statLabel}>Favourites</Text>
               </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>4.8</Text>
-                <Text style={styles.statLabel}>Rating</Text>
-              </View>
             </View>
           </>
         )}
 
         {/* Menu Items */}
         <View style={styles.menuContainer}>
-          {(user?.name
-            ? menuItems
-            : menuItems.filter(item =>
-                [
-                  'notifications-outline',
-                  'help-circle-outline',
-                  'settings-outline',
-                ].includes(item.icon)
-              )
-          ).map((item, index, arr) => (
-            <TouchableOpacity
-              key={index}
-              style={[
-                styles.menuItem,
-                index !== arr.length - 1 && styles.menuItemBorder
-              ]}
-              onPress={item.onPress}
-            >
-              <View style={styles.menuIcon}>
-                <Ionicons name={item.icon as any} size={20} color="#000" />
-              </View>
-              <View style={styles.menuContent}>
-                <Text style={styles.menuTitle}>{item.title}</Text>
-                <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color="#ccc" />
-            </TouchableOpacity>
-          ))}
+          {menuItems.map((item, index, arr) => {
+            const isAlwaysAccessible = ['help-circle-outline', 'document-text-outline', 'information-circle-outline'].includes(item.icon) || item.title === 'Privacy Policy' || item.title === 'Terms of Service' || item.title === 'About';
+            // Settings requires authentication
+            const isAccessible = item.icon === 'settings-outline' ? (user?.name || isAuthenticated) : (user?.name || isAlwaysAccessible);
+            
+            return (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.menuItem,
+                  index !== arr.length - 1 && styles.menuItemBorder,
+                  !isAccessible && styles.menuItemDisabled
+                ]}
+                onPress={isAccessible ? item.onPress : undefined}
+                disabled={!isAccessible}
+              >
+                <View style={[styles.menuIcon, !isAccessible && styles.menuIconDisabled]}>
+                  <Ionicons name={item.icon as any} size={20} color={!isAccessible ? '#ccc' : '#000'} />
+                </View>
+                <View style={styles.menuContent}>
+                  <Text style={[styles.menuTitle, !isAccessible && styles.menuTitleDisabled]}>{item.title}</Text>
+                  <Text style={[styles.menuSubtitle, !isAccessible && styles.menuSubtitleDisabled]}>{item.subtitle}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={!isAccessible ? '#e0e0e0' : '#ccc'} />
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* Sign Out Button */}
@@ -429,6 +463,7 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
         </Modal>
+
       </ScrollView>
     </Animated.View>
   );
@@ -595,6 +630,18 @@ const styles = StyleSheet.create({
   menuSubtitle: {
     fontSize: 14,
     color: '#666',
+  },
+  menuItemDisabled: {
+    opacity: 0.5,
+  },
+  menuIconDisabled: {
+    opacity: 0.5,
+  },
+  menuTitleDisabled: {
+    color: '#ccc',
+  },
+  menuSubtitleDisabled: {
+    color: '#ccc',
   },
   signOutContainer: {
     paddingHorizontal: 20,

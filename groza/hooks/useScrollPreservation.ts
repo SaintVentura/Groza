@@ -27,9 +27,9 @@ export const useScrollPreservation = (screenKey: string) => {
   // Restore scroll position when screen gains focus
   useFocusEffect(
     React.useCallback(() => {
+      // Restore saved position for all pages
       const savedPosition = scrollPositions.get(screenKey);
       if (savedPosition && scrollViewRef.current) {
-        // Use setTimeout to ensure the component is fully rendered
         setTimeout(() => {
           scrollViewRef.current?.scrollTo({
             x: savedPosition.x,

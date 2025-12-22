@@ -24,7 +24,7 @@ const { width } = Dimensions.get('window');
 export default function VendorScreen() {
   const { id } = useLocalSearchParams();
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const { addToCart, removeFromCart, updateCartItemQuantity, cart } = useStore();
+  const { addToCart, removeFromCart, updateCartItemQuantity, cart, isAuthenticated, getProductRating, getVendorRating } = useStore();
   const colorSchemeRaw = useColorScheme();
   const colorScheme = colorSchemeRaw === 'dark' ? 'dark' : 'light';
   const [removedProductIds, setRemovedProductIds] = useState<string[]>([]);
@@ -147,7 +147,7 @@ export default function VendorScreen() {
           }
         ]}
       >
-        <ScrollView style={{ flex: 1 }}>
+        <ScrollView style={{ flex: 1 }} removeClippedSubviews={false}>
         <View style={{ position: 'relative', marginTop: 0, paddingTop: 0 }}>
           <Image
             source={{ uri: vendorData.image }}
@@ -181,26 +181,54 @@ export default function VendorScreen() {
         </View>
         {/* Vendor Info Card */}
         <View style={[styles.vendorInfoCard, { backgroundColor: Colors[colorScheme].background }]}>
-          <Text style={[styles.vendorName, { color: Colors[colorScheme].text }]}>{vendorData.name}</Text>
-          <Text style={[styles.vendorTagline, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.tagline}</Text>
+          <View style={styles.vendorHeader}>
+            <Image
+              source={{ uri: vendorData.image }}
+              style={styles.vendorLogo}
+              resizeMode="cover"
+            />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={[styles.vendorName, { color: Colors[colorScheme].text }]}>{vendorData.name}</Text>
+              <Text style={[styles.vendorTagline, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.tagline}</Text>
+            </View>
+          </View>
           <View style={styles.vendorStats}>
             <View style={styles.statItem}>
               <Ionicons name="star" size={16} color="#fbbf24" />
-              <Text style={[styles.statText, { color: Colors[colorScheme].text }]}>{vendorData.rating}</Text>
+              <Text style={[styles.statText, { color: Colors[colorScheme].text }]}>
+                {(() => {
+                  const productIds = vendorData.products.map(p => p.id);
+                  const calculatedRating = getVendorRating(vendorData.id, productIds);
+                  return calculatedRating > 0 ? calculatedRating.toFixed(1) : vendorData.rating.toFixed(1);
+                })()}
+              </Text>
             </View>
-            <View style={styles.statItem}>
-              <Ionicons name="time-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-              <Text style={[styles.statText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.deliveryEstimate}</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-              <Text style={[styles.statText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.distance}</Text>
-            </View>
+            {isAuthenticated && (
+              <>
+                <View style={styles.statItem}>
+                  <Ionicons name="time-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                  <Text style={[styles.statText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.deliveryEstimate}</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="location-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+                  <Text style={[styles.statText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.distance}</Text>
+                </View>
+              </>
+            )}
           </View>
-          <View style={styles.deliveryInfo}>
-            <Ionicons name="car-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
-            <Text style={[styles.deliveryText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.deliveryFee} delivery</Text>
-          </View>
+          {isAuthenticated ? (
+            <View style={styles.deliveryInfo}>
+              <Ionicons name="car-outline" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.deliveryText, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.deliveryFee} delivery</Text>
+            </View>
+          ) : (
+            <View style={[styles.deliveryInfo, { paddingVertical: 12, paddingHorizontal: 12, backgroundColor: colorScheme === 'dark' ? '#1a1a1a' : '#f5f5f5', borderRadius: 8, marginTop: 8 }]}>
+              <Ionicons name="information-circle-outline" size={18} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.deliveryText, { color: colorScheme === 'dark' ? '#aaa' : '#666', marginLeft: 8, flex: 1, fontSize: 13, lineHeight: 18 }]}>
+                Sign Up to see Delivery Price, Order Time and Distance.
+              </Text>
+            </View>
+          )}
         </View>
         {/* Categories Card */}
         <View style={[styles.categoriesCard, { backgroundColor: Colors[colorScheme].background }]}>
@@ -269,8 +297,19 @@ export default function VendorScreen() {
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18 }}>{item.name}</Text>
+                        <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18, marginBottom: 4 }}>{item.name}</Text>
                         {/* No description or popular field in Product type, so omit */}
+                        {(() => {
+                          const avgRating = getProductRating(item.id);
+                          return (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                              <Ionicons name={avgRating > 0 ? "star" : "star-outline"} size={14} color={avgRating > 0 ? "#fbbf24" : (colorScheme === 'dark' ? '#666' : '#aaa')} />
+                              <Text style={{ color: avgRating > 0 ? Colors[colorScheme].text : (colorScheme === 'dark' ? '#666' : '#aaa'), fontSize: 14, marginLeft: 4, fontWeight: '500' }}>
+                                {avgRating > 0 ? avgRating.toFixed(1) : 'No ratings'}
+                              </Text>
+                            </View>
+                          );
+                        })()}
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18 }}>R{item.price.toFixed(2)}</Text>
@@ -401,15 +440,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
+  vendorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  vendorLogo: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#f0f0f0',
+  },
   vendorName: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   vendorTagline: {
-    fontSize: 16,
-    marginBottom: 16,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
   },
   vendorStats: {
     flexDirection: 'row',
