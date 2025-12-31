@@ -11,6 +11,7 @@ import {
   TextInput,
   Dimensions,
   Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -36,13 +37,21 @@ const Colors = {
 };
 
 export default function CartScreen() {
-  const { cart, cartTotal, removeFromCart, updateCartItemQuantity, clearCart, isAuthenticated } = useStore();
+  const { cart, cartTotal, removeFromCart, updateCartItemQuantity, clearCart, isAuthenticated, showMultiVendorModal, dismissMultiVendorPopup, getVendorCarts, selectVendorForCheckout, selectedVendorId } = useStore();
   const colorSchemeRaw = useColorScheme();
   const colorScheme = colorSchemeRaw === 'dark' ? 'dark' : 'light';
   const [orderNote, setOrderNote] = useState('');
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [showSignupModal, setShowSignupModal] = useState(false);
   const animatedValues = useRef<{ [id: string]: Animated.Value }>({}).current;
+  
+  // Auto-select first vendor if multiple vendors and none selected
+  useEffect(() => {
+    const vendorCarts = getVendorCarts();
+    if (vendorCarts.length > 1 && !selectedVendorId && vendorCarts[0]) {
+      selectVendorForCheckout(vendorCarts[0].restaurantId);
+    }
+  }, [cart.length]);
 
   // Animations for header, line, and order note
   const headerFade = useRef(new Animated.Value(cart.length > 0 ? 1 : 0)).current;
@@ -137,6 +146,29 @@ export default function CartScreen() {
   const handleCheckout = () => {
     if (cart.length === 0) {
       Alert.alert('Empty Cart', 'Please add items to your cart before checkout');
+      return;
+    }
+    
+    const vendorCarts = getVendorCarts();
+    
+    // Check if multiple vendors and no vendor is selected
+    if (vendorCarts.length > 1 && !selectedVendorId) {
+      Alert.alert(
+        'Multiple Vendors',
+        'You have items from multiple vendors. Please select one vendor to proceed to checkout.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    
+    // Filter cart to selected vendor if multiple vendors exist
+    let checkoutCart = cart;
+    if (vendorCarts.length > 1 && selectedVendorId) {
+      checkoutCart = cart.filter(item => item.restaurantId === selectedVendorId);
+    }
+    
+    if (checkoutCart.length === 0) {
+      Alert.alert('Empty Cart', 'Please select a vendor with items to checkout');
       return;
     }
     
@@ -249,8 +281,74 @@ export default function CartScreen() {
         <View style={{ alignItems: 'center', marginBottom: 18 }}>
           <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: '#e0e0e0', opacity: 0.7 }} />
         </View>
+        
+        {/* Multi-Vendor Header */}
+        {(() => {
+          const vendorCarts = getVendorCarts();
+          if (vendorCarts.length > 1) {
+            return (
+              <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#666', marginBottom: 12 }}>
+                  Select a vendor to checkout ({vendorCarts.length} vendors)
+                </Text>
+                {vendorCarts.map((vendorCart) => {
+                  const isSelected = selectedVendorId === vendorCart.restaurantId;
+                  const vendorTotal = vendorCart.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                  return (
+                    <TouchableOpacity
+                      key={vendorCart.restaurantId}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: 16,
+                        backgroundColor: isSelected ? '#000' : '#f8f9fa',
+                        borderRadius: 12,
+                        marginBottom: 8,
+                        borderWidth: isSelected ? 2 : 1,
+                        borderColor: isSelected ? '#000' : '#e0e0e0',
+                      }}
+                      onPress={() => selectVendorForCheckout(vendorCart.restaurantId)}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ 
+                          fontSize: 16, 
+                          fontWeight: '600', 
+                          color: isSelected ? '#fff' : '#000',
+                          marginBottom: 4,
+                        }}>
+                          {vendorCart.restaurantName}
+                        </Text>
+                        <Text style={{ 
+                          fontSize: 14, 
+                          color: isSelected ? '#ccc' : '#666',
+                        }}>
+                          {vendorCart.items.length} item{vendorCart.items.length !== 1 ? 's' : ''} • R{vendorTotal.toFixed(2)}
+                        </Text>
+                      </View>
+                      {isSelected && (
+                        <Ionicons name="checkmark-circle" size={24} color="#fff" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+                <View style={{ height: 1, backgroundColor: '#f0f0f0', marginVertical: 16 }} />
+              </View>
+            );
+          }
+          return null;
+        })()}
+        
         {/* Cart Items */}
-        {cart.map((item) => {
+        {(() => {
+          const vendorCarts = getVendorCarts();
+          // If multiple vendors, show items only from selected vendor (or first if none selected)
+          if (vendorCarts.length > 1) {
+            const activeVendorId = selectedVendorId || vendorCarts[0]?.restaurantId;
+            const activeVendor = vendorCarts.find(v => v.restaurantId === activeVendorId);
+            if (!activeVendor) return null;
+            
+            return activeVendor.items.map((item) => {
           if (!animatedValues[item.id]) {
             animatedValues[item.id] = new Animated.Value(1);
           }
@@ -330,8 +428,94 @@ export default function CartScreen() {
                 </View>
               </View>
             </Animated.View>
-          );
-        })}
+            );
+          });
+          }
+          
+          // Single vendor - show all items
+          return cart.map((item) => {
+            if (!animatedValues[item.id]) {
+              animatedValues[item.id] = new Animated.Value(1);
+            }
+            return (
+              <Animated.View
+                key={item.id}
+                style={[
+                  styles.cartItem,
+                  { backgroundColor: Colors[colorScheme].background },
+                  {
+                    opacity: animatedValues[item.id],
+                    height: animatedValues[item.id].interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 128],
+                      extrapolate: 'clamp',
+                    }),
+                    marginBottom: animatedValues[item.id].interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 24],
+                      extrapolate: 'clamp',
+                    }),
+                  },
+                ]}
+              >
+                <Image
+                  source={{ uri: item.image || 'https://via.placeholder.com/80' }}
+                  style={styles.itemImage}
+                  resizeMode="cover"
+                />
+                <View style={styles.itemInfo}>
+                  <View style={styles.itemHeader}>
+                    <View style={styles.itemDetails}>
+                      <Text style={[styles.itemName, { color: Colors[colorScheme].text }]}>{item.name}</Text>
+                      <Text style={[styles.itemRestaurant, { color: Colors[colorScheme].text }]}>{item.restaurantName}</Text>
+                      {item.customizations && item.customizations.length > 0 && (
+                        <Text style={[styles.itemCustomizations, { color: Colors[colorScheme].text }]}>
+                          {item.customizations.join(', ')}
+                        </Text>
+                      )}
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => handleRemoveItem(item.id)}
+                      style={styles.removeButton}
+                      disabled={removingId === item.id}
+                    >
+                      <Ionicons name="close" size={20} color="#FF3B30" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.itemFooter}>
+                    <View style={styles.priceContainer}>
+                      <Text style={[styles.itemPrice, { color: Colors[colorScheme].text }]}>R{(item.price * item.quantity).toFixed(2)}</Text>
+                      <Text style={[styles.pricePerItem, { color: Colors[colorScheme].text }]}>R{item.price.toFixed(2)} each</Text>
+                    </View>
+                    <View style={styles.quantityContainer}>
+                      <TouchableOpacity
+                        style={styles.quantityButton}
+                        onPress={() => {
+                          if (item.quantity === 1) {
+                            handleRemoveItem(item.id);
+                          } else {
+                            updateCartItemQuantity(item.id, item.quantity - 1);
+                          }
+                        }}
+                        disabled={removingId === item.id}
+                      >
+                        <Ionicons name="remove" size={16} color={colorScheme === 'dark' ? '#fff' : '#000'} />
+                      </TouchableOpacity>
+                      <Text style={[styles.quantityText, { color: Colors[colorScheme].text }]}>{item.quantity}</Text>
+                      <TouchableOpacity
+                        style={styles.quantityButton}
+                        onPress={() => updateCartItemQuantity(item.id, item.quantity + 1)}
+                      >
+                        <Ionicons name="add" size={16} color={colorScheme === 'dark' ? '#fff' : '#000'} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </Animated.View>
+            );
+          });
+        })()}
       </ScrollView>
 
       {/* Order Note Section */}
@@ -365,7 +549,16 @@ export default function CartScreen() {
       <View style={[styles.checkoutSection, { backgroundColor: Colors[colorScheme].background }]}>
         <View style={styles.priceRow}>
           <Text style={[styles.priceLabel, { color: Colors[colorScheme].text }]}>Subtotal</Text>
-          <Text style={[styles.priceValue, { color: Colors[colorScheme].text }]}>R{cartTotal.toFixed(2)}</Text>
+          <Text style={[styles.priceValue, { color: Colors[colorScheme].text }]}>
+            R{(() => {
+              const vendorCarts = getVendorCarts();
+              if (vendorCarts.length > 1 && selectedVendorId) {
+                const selectedCart = cart.filter(item => item.restaurantId === selectedVendorId);
+                return selectedCart.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2);
+              }
+              return cartTotal.toFixed(2);
+            })()}
+          </Text>
         </View>
         <TouchableOpacity
           style={[styles.checkoutButton, { backgroundColor: colorScheme === 'dark' ? '#fff' : '#000' }]}
@@ -452,10 +645,11 @@ const styles = StyleSheet.create({
   },
   cartHeadingContainer: {
     paddingHorizontal: 20,
-    paddingTop: 80,
-    paddingBottom: -32, // More negative value to drastically reduce space below cart heading
+    paddingTop: Platform.OS === 'ios' ? 74 : 44,
+    paddingBottom: 20,
     alignItems: 'flex-start',
     backgroundColor: '#fff',
+    marginBottom: 20, // Space under header (matching home/explore)
   },
   cartHeading: {
     fontSize: 42,

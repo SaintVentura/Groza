@@ -23,6 +23,7 @@ import MapView, { Marker } from 'react-native-maps';
 import type { Vendor } from '@/constants/Vendors';
 import { useFocusEffect } from '@react-navigation/native';
 import { useScrollPreservation } from '../../hooks/useScrollPreservation';
+import { formatEstimatedDelivery, simulateOrderUpdates } from '@/services/orderUpdates';
 
 const { width } = Dimensions.get('window');
 
@@ -236,7 +237,8 @@ export default function HomeScreen() {
   const [selectedGroceryTypes, setSelectedGroceryTypes] = useState<Array<'fruits' | 'vegetables'>>([]);
   const [selectedSorts, setSelectedSorts] = useState<Array<{type: string, direction: 'asc' | 'desc'}>>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-  const { user, isAuthenticated, getVendorRating } = useStore();
+  const { user, isAuthenticated, getVendorRating, currentOrder, updateOrder, setCurrentOrder } = useStore();
+  const [orderPopupVisible, setOrderPopupVisible] = React.useState(false);
   const colorSchemeRaw = useColorScheme();
   const colorScheme = colorSchemeRaw === 'dark' ? 'dark' : 'light';
   
@@ -248,6 +250,33 @@ export default function HomeScreen() {
   const slideAnim = useRef(new Animated.Value(100)).current;
   const dropdownAnim = useRef(new Animated.Value(0)).current;
   const isFirstLoad = useRef(true);
+
+  // Set up live order updates
+  React.useEffect(() => {
+    if (currentOrder && currentOrder.status !== 'delivered' && currentOrder.status !== 'cancelled') {
+      setOrderPopupVisible(true);
+      
+      const cleanup = simulateOrderUpdates(
+        currentOrder,
+        (updates) => {
+          updateOrder(currentOrder.id, updates);
+          setCurrentOrder({ ...currentOrder, ...updates });
+        },
+        () => {
+          // Order delivered
+          updateOrder(currentOrder.id, { status: 'delivered' });
+          setTimeout(() => {
+            setOrderPopupVisible(false);
+            setCurrentOrder(null);
+          }, 5000);
+        }
+      );
+
+      return cleanup;
+    } else if (!currentOrder || currentOrder.status === 'delivered' || currentOrder.status === 'cancelled') {
+      setOrderPopupVisible(false);
+    }
+  }, [currentOrder?.id]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -321,35 +350,52 @@ export default function HomeScreen() {
     if (selectedGroceryTypes.length > 0) {
       filtered = filtered.filter(vendor => {
         const productCategories = vendor.products.map(p => p.category.toLowerCase());
-        return selectedGroceryTypes.some(type => 
-          productCategories.includes(type)
-        );
+        // If both types are selected, vendor must have BOTH fruits AND vegetables
+        if (selectedGroceryTypes.length === 2) {
+          return productCategories.includes('fruits') && productCategories.includes('vegetables');
+        }
+        // If only one type is selected, vendor must have that type
+        return productCategories.includes(selectedGroceryTypes[0]);
       });
     }
 
-    // Sort - apply multiple sorts in sequence
+    // Sort - apply multiple sorts in sequence with priority: rating -> distance -> time
     // Filter out time and distance sorts if not authenticated
     const activeSorts = isAuthenticated 
       ? selectedSorts 
       : selectedSorts.filter(s => s.type !== 'time' && s.type !== 'distance');
     
     if (activeSorts.length > 0) {
+      // Sort active sorts by priority: rating first, then distance, then time
+      const sortPriority: { [key: string]: number } = { rating: 1, distance: 2, time: 3 };
+      const sortedActiveSorts = [...activeSorts].sort((a, b) => {
+        const priorityA = sortPriority[a.type] || 999;
+        const priorityB = sortPriority[b.type] || 999;
+        return priorityA - priorityB;
+      });
+      
       filtered = [...filtered].sort((a, b) => {
-        for (const sort of activeSorts) {
+        for (const sort of sortedActiveSorts) {
           let comparison = 0;
           
           if (sort.type === 'rating') {
-            comparison = sort.direction === 'asc'
-              ? a.rating - b.rating
-              : b.rating - a.rating;
+            // Use getVendorRating for accurate ratings
+            const productIdsA = a.products.map(p => p.id);
+            const productIdsB = b.products.map(p => p.id);
+            const ratingA = getVendorRating(a.id, productIdsA) || a.rating;
+            const ratingB = getVendorRating(b.id, productIdsB) || b.rating;
+            // Rating: desc (highest first)
+            comparison = ratingB - ratingA;
           } else if (sort.type === 'distance') {
             const distA = parseFloat(a.distance.replace(' km', ''));
             const distB = parseFloat(b.distance.replace(' km', ''));
-            comparison = sort.direction === 'asc' ? distA - distB : distB - distA;
+            // Distance: asc (shortest first)
+            comparison = distA - distB;
           } else if (sort.type === 'time') {
             const timeA = parseInt(a.deliveryEstimate.split('–')[0]);
             const timeB = parseInt(b.deliveryEstimate.split('–')[0]);
-            comparison = sort.direction === 'asc' ? timeA - timeB : timeB - timeA;
+            // Time: asc (shortest first)
+            comparison = timeA - timeB;
           }
           
           // If this sort criteria shows a difference, return it
@@ -363,7 +409,7 @@ export default function HomeScreen() {
     }
 
     return filtered;
-  }, [selectedDeliveryType, selectedGroceryTypes, selectedSorts]);
+  }, [selectedDeliveryType, selectedGroceryTypes, selectedSorts, isAuthenticated, getVendorRating]);
 
   const handleSortToggle = (type: string) => {
     setSelectedSorts((prev) => {
@@ -1223,5 +1269,37 @@ const styles = StyleSheet.create({
   quickActionCardSelected: {
     backgroundColor: '#000',
     borderColor: '#000',
+  },
+  floatingOrderPopup: {
+    position: 'absolute',
+    bottom: 100,
+    right: 20,
+    backgroundColor: '#000',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 1000,
+    minWidth: 120,
+  },
+  orderPopupContent: {
+    flex: 1,
+  },
+  orderPopupTitle: {
+    fontSize: 12,
+    color: '#fff',
+    marginBottom: 2,
+    fontWeight: '500',
+  },
+  orderPopupTime: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
   },
 });

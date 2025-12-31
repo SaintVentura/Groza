@@ -12,6 +12,7 @@ import {
   Modal,
   ScrollView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -20,11 +21,53 @@ import { vendors } from '@/constants/Vendors';
 import { useFocusEffect } from '@react-navigation/native';
 import { useStore } from '@/store/useStore';
 import { LinearGradient } from 'expo-linear-gradient';
+import { VideoView, useVideoPlayer } from 'expo-video';
+import { Audio } from 'expo-audio';
 
 const { width } = Dimensions.get('window');
 const COLUMN_COUNT = 2;
 const ITEM_MARGIN = 4;
 const ITEM_WIDTH = (width - (ITEM_MARGIN * (COLUMN_COUNT + 1))) / COLUMN_COUNT;
+
+// Video URLs mapped to product categories - using free stock videos from Pexels
+const VIDEO_MAPPING: Record<string, string[]> = {
+  'Fruits': [
+    'https://videos.pexels.com/video-files/3045163/3045163-uhd_2560_1440_25fps.mp4', // Fresh fruits
+    'https://videos.pexels.com/video-files/1409899/1409899-uhd_2560_1440_25fps.mp4', // Fruits in basket
+    'https://videos.pexels.com/video-files/3298680/3298680-uhd_2560_1440_30fps.mp4', // Colorful fruits
+    'https://videos.pexels.com/video-files/3044083/3044083-uhd_2560_1440_25fps.mp4', // Fresh berries
+  ],
+  'Vegetables': [
+    'https://videos.pexels.com/video-files/3045165/3045165-uhd_2560_1440_25fps.mp4', // Fresh vegetables
+    'https://videos.pexels.com/video-files/3045164/3045164-uhd_2560_1440_25fps.mp4', // Leafy greens
+    'https://videos.pexels.com/video-files/3045254/3045254-uhd_2560_1440_25fps.mp4', // Colorful vegetables
+    'https://videos.pexels.com/video-files/2491284/2491284-uhd_2560_1440_25fps.mp4', // Fresh produce
+  ],
+  'Combos': [
+    'https://videos.pexels.com/video-files/2491284/2491284-uhd_2560_1440_25fps.mp4', // Mixed produce
+    'https://videos.pexels.com/video-files/3045254/3045254-uhd_2560_1440_25fps.mp4', // Assorted fruits and vegetables
+    'https://videos.pexels.com/video-files/3298680/3298680-uhd_2560_1440_30fps.mp4', // Fresh market produce
+    'https://videos.pexels.com/video-files/1409899/1409899-uhd_2560_1440_25fps.mp4', // Variety pack
+  ],
+};
+
+// Helper function to get a video URL based on product categories
+const getVideoForCategories = (categories: ('Fruits' | 'Vegetables' | 'Combos')[]): string | undefined => {
+  // Prefer videos for primary category, fallback to combos
+  if (categories.includes('Fruits')) {
+    const videos = VIDEO_MAPPING['Fruits'];
+    return videos[Math.floor(Math.random() * videos.length)];
+  }
+  if (categories.includes('Vegetables')) {
+    const videos = VIDEO_MAPPING['Vegetables'];
+    return videos[Math.floor(Math.random() * videos.length)];
+  }
+  if (categories.includes('Combos')) {
+    const videos = VIDEO_MAPPING['Combos'];
+    return videos[Math.floor(Math.random() * videos.length)];
+  }
+  return undefined;
+};
 
 // Generate posts from vendors (each vendor can have multiple posts)
 interface ExplorePost {
@@ -50,13 +93,18 @@ const generatePosts = (): ExplorePost[] => {
         .sort(() => 0.5 - Math.random())
         .slice(0, Math.floor(Math.random() * 3) + 1);
       
+      const categories = [...new Set(randomProducts.map(p => p.category))] as ('Fruits' | 'Vegetables' | 'Combos')[];
+      // Only assign videos to ~40% of posts to improve performance
+      const videoUrl = Math.random() < 0.4 ? getVideoForCategories(categories) : undefined;
+      
       posts.push({
         id: `${vendor.id}-post-${i}`,
         vendorId: vendor.id,
         vendorName: vendor.name,
         image: randomProducts[0]?.image || vendor.image,
+        video: videoUrl, // Assign video based on product categories (only 40% of posts)
         productNames: randomProducts.map(p => p.name),
-        categories: [...new Set(randomProducts.map(p => p.category))] as ('Fruits' | 'Vegetables' | 'Combos')[],
+        categories: categories,
         deliveryType: vendor.offersPickup && vendor.offersDelivery ? 'both' : vendor.offersPickup ? 'pickup' : 'delivery',
         tags: [
           ...randomProducts.map(p => p.name.toLowerCase()),
@@ -85,6 +133,8 @@ export default function ExploreScreen() {
   const dropdownAnim = useRef(new Animated.Value(0)).current;
   const isFirstLoad = useRef(true);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Videos are already muted so they won't interrupt background music
 
   useFocusEffect(
     React.useCallback(() => {
@@ -236,19 +286,55 @@ export default function ExploreScreen() {
     });
   };
 
-  const renderPost = (post: ExplorePost, index: number) => {
-    const vendor = vendors.find(v => v.id === post.vendorId);
-    const height = 200 + (Math.random() * 100); // Varying heights for masonry effect
+  const PostItem = React.memo(({ post, vendor, height, shouldHighlight, firstProduct }: {
+    post: ExplorePost;
+    vendor: any;
+    height: number;
+    shouldHighlight: boolean;
+    firstProduct: any;
+  }) => {
+    const [isVideoLoading, setIsVideoLoading] = useState(true);
     
-    // Only highlight if post has exactly one product
-    const shouldHighlight = post.productNames.length === 1;
-    const firstProduct = shouldHighlight ? vendor?.products.find(p => 
-      post.productNames.some(name => p.name.toLowerCase() === name.toLowerCase())
-    ) : null;
+    // Always create player (hooks must be called unconditionally)
+    // Initialize with video URL directly for faster loading
+    const player = useVideoPlayer(post.video || '', (player) => {
+      if (post.video) {
+        player.loop = true;
+        player.muted = true;
+      }
+    });
+    
+    // Play video when ready and track loading state
+    useEffect(() => {
+      if (!post.video) {
+        setIsVideoLoading(false);
+        return;
+      }
+      
+      // Listen for status changes to detect when video is ready
+      const unsubscribe = player.addListener('statusChange', (status) => {
+        if (status.status === 'readyToPlay') {
+          setIsVideoLoading(false);
+          player.play();
+        }
+      });
+      
+      // Try to play immediately
+      player.play();
+      
+      return () => {
+        unsubscribe.remove();
+        // Safely pause player - may already be destroyed
+        try {
+          player.pause();
+        } catch (error) {
+          // Player already destroyed or invalid, ignore
+        }
+      };
+    }, [post.video, player]);
     
     return (
       <TouchableOpacity
-        key={post.id}
         style={[styles.postContainer, { width: ITEM_WIDTH, marginBottom: ITEM_MARGIN }]}
         onPress={() => {
           // Only navigate with productId if post has exactly one product
@@ -260,11 +346,28 @@ export default function ExploreScreen() {
         }}
         activeOpacity={0.85}
       >
-          <Image
-          source={{ uri: post.image }}
-          style={[styles.postImage, { height }]}
-            resizeMode="cover"
-          />
+          {post.video ? (
+            <View style={[styles.postImage, { height }]}>
+              <VideoView
+                player={player}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                nativeControls={false}
+                allowsPictureInPicture={false}
+              />
+              {isVideoLoading && (
+                <View style={styles.videoLoadingOverlay}>
+                  <ActivityIndicator size="large" color="#fff" />
+                </View>
+              )}
+            </View>
+          ) : (
+            <Image
+              source={{ uri: post.image }}
+              style={[styles.postImage, { height }]}
+              resizeMode="cover"
+            />
+          )}
         {vendor && (
           <View style={styles.ratingBadge}>
             <Ionicons name="star" size={12} color="#FFD700" />
@@ -286,6 +389,28 @@ export default function ExploreScreen() {
           </View>
         </LinearGradient>
       </TouchableOpacity>
+    );
+  });
+
+  const renderPost = (post: ExplorePost, index: number) => {
+    const vendor = vendors.find(v => v.id === post.vendorId);
+    const height = 200 + (Math.random() * 100); // Varying heights for masonry effect
+    
+    // Only highlight if post has exactly one product
+    const shouldHighlight = post.productNames.length === 1;
+    const firstProduct = shouldHighlight ? vendor?.products.find(p => 
+      post.productNames.some(name => p.name.toLowerCase() === name.toLowerCase())
+    ) : null;
+    
+    return (
+      <PostItem 
+        key={post.id}
+        post={post}
+        vendor={vendor}
+        height={height}
+        shouldHighlight={shouldHighlight}
+        firstProduct={firstProduct}
+      />
     );
   };
 
@@ -653,7 +778,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    transition: 'all 0.3s ease',
   },
   filterButtonActive: {
     backgroundColor: '#000',
@@ -784,6 +908,14 @@ const styles = StyleSheet.create({
   },
   postImage: {
     width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  videoLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 16,
   },
   postOverlay: {

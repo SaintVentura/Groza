@@ -28,11 +28,9 @@ export const calculateDeliveryCost = async (
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   const distance = R * c;
 
-  // Placeholder: Calculate cost based on distance (replace with Uber API)
-  // Uber typically charges around R5-15 per km for bike delivery
-  const baseCost = 10; // Base fee
-  const perKmCost = 8; // Cost per km
-  const cost = baseCost + (distance * perKmCost);
+  // Calculate cost: R9 per kilometer (as requested)
+  const perKmCost = 9; // R9 per km
+  const cost = distance * perKmCost;
 
   // Estimated time: ~5 minutes base + ~2 minutes per km
   const estimatedTime = Math.round(5 + (distance * 2));
@@ -63,4 +61,5 @@ export const getBikeCourierLocations = (
   }
   return couriers;
 };
+
 

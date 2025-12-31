@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -19,11 +19,14 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from 'react-native';
 import { vendors } from '@/constants/Vendors';
 import { calculateDeliveryCost, getBikeCourierLocations } from '@/services/uber';
+import { simulateOrderUpdates } from '@/services/orderUpdates';
 
 export default function CheckoutScreen() {
-  const { cart, cartTotal, clearCart, addOrder, user, addresses, paymentMethods } = useStore();
+  const { cart, cartTotal, clearCart, addOrder, updateOrder, setCurrentOrder, user, addresses, paymentMethods, selectedVendorId, getVendorCarts } = useStore();
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showOrderPlacedModal, setShowOrderPlacedModal] = useState(false);
+  const [deliveryType, setDeliveryType] = useState<'pickup' | 'delivery'>('delivery');
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [estimatedDeliveryTime, setEstimatedDeliveryTime] = useState(25);
   const [courierLocations, setCourierLocations] = useState<Array<{ latitude: number; longitude: number; id: string }>>([]);
@@ -31,11 +34,27 @@ export default function CheckoutScreen() {
   const colorSchemeRaw = useColorScheme();
   const colorScheme = colorSchemeRaw === 'dark' ? 'dark' : 'light';
 
-  const SERVICE_FEE = 30; // R30 service fee
-  const total = cartTotal + deliveryFee + SERVICE_FEE;
+  // Filter cart to selected vendor if multiple vendors exist
+  const checkoutCart = React.useMemo(() => {
+    const vendorCarts = getVendorCarts();
+    if (vendorCarts.length > 1 && selectedVendorId) {
+      return cart.filter(item => item.restaurantId === selectedVendorId);
+    }
+    return cart;
+  }, [cart, selectedVendorId, getVendorCarts]);
 
-  // Get default address
-  const defaultAddress = addresses.find(addr => addr.isDefault) || addresses[0];
+  const checkoutCartTotal = React.useMemo(() => {
+    return checkoutCart.reduce((total, item) => total + (item.price * item.quantity), 0);
+  }, [checkoutCart]);
+
+  const SERVICE_FEE = 30; // R30 service fee
+  const total = checkoutCartTotal + (deliveryType === 'delivery' ? deliveryFee : 0) + SERVICE_FEE;
+
+  // Get default address - memoize to prevent infinite loops
+  const defaultAddress = React.useMemo(() => {
+    return addresses.find(addr => addr.isDefault) || addresses[0];
+  }, [addresses]);
+  
   const deliveryAddress = defaultAddress 
     ? `${defaultAddress.street}, ${defaultAddress.city}, ${defaultAddress.postalCode}`
     : '';
@@ -60,29 +79,58 @@ export default function CheckoutScreen() {
     ? { id: 'cash', type: 'cash' as const, label: 'Cash on Delivery', isDefault: false }
     : savedCards.find(pm => pm.id === selectedCardId) || savedCards.find(pm => pm.isDefault) || savedCards[0];
 
-  // Get vendor location
-  const vendor = cart.length > 0 ? vendors.find(v => v.id === cart[0].restaurantId) : null;
-  const vendorLocation = vendor?.location || { latitude: -26.2041, longitude: 28.0473 };
+  // Get vendor location - memoize to prevent infinite loops
+  const vendor = React.useMemo(() => {
+    return checkoutCart.length > 0 ? vendors.find(v => v.id === checkoutCart[0].restaurantId) : null;
+  }, [checkoutCart]);
+  
+  const vendorLocation = React.useMemo(() => {
+    return vendor?.location || { latitude: -26.2041, longitude: 28.0473 };
+  }, [vendor]);
 
-  // Calculate delivery cost when address is available
+  // Calculate delivery cost when address is available - use stable dependencies
   useEffect(() => {
     const calculateFee = async () => {
+      if (deliveryType === 'pickup') {
+        setDeliveryFee(0);
+        setEstimatedDeliveryTime(15); // Pickup is faster
+        return;
+      }
+      
       if (defaultAddress && vendorLocation) {
         try {
-          // For now, use vendor location as customer location (placeholder)
-          // In production, geocode the address to get coordinates
-          const customerLocation = { latitude: -26.2041, longitude: 28.0473 }; // Placeholder
+          // Geocode customer address to get coordinates
+          const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+          let customerLocation = { latitude: -26.2041, longitude: 28.0473 }; // Default Johannesburg center
+          
+          if (GOOGLE_PLACES_API_KEY && defaultAddress.street) {
+            try {
+              // Try to geocode the address
+              const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(defaultAddress.street + ', ' + defaultAddress.city)}&key=${GOOGLE_PLACES_API_KEY}`;
+              const response = await fetch(geocodeUrl);
+              const data = await response.json();
+              if (data.results && data.results.length > 0) {
+                const location = data.results[0].geometry.location;
+                customerLocation = { latitude: location.lat, longitude: location.lng };
+              }
+            } catch (error) {
+              console.error('Geocoding error:', error);
+            }
+          }
+          
           const result = await calculateDeliveryCost(vendorLocation, customerLocation);
           setDeliveryFee(result.cost);
           setEstimatedDeliveryTime(result.estimatedTime);
         } catch (error) {
           console.error('Error calculating delivery cost:', error);
         }
+      } else {
+        setDeliveryFee(0);
       }
     };
 
     calculateFee();
-  }, [defaultAddress, vendorLocation]);
+  }, [defaultAddress?.id, vendorLocation.latitude, vendorLocation.longitude, deliveryType]);
 
   // Get courier locations and animate them
   useEffect(() => {
@@ -157,29 +205,56 @@ export default function CheckoutScreen() {
       const order = {
         id: Date.now().toString(),
         customerId: user?.id || '',
-        restaurantId: cart[0]?.restaurantId || '',
-        items: cart,
+        restaurantId: checkoutCart[0]?.restaurantId || '',
+        items: checkoutCart,
         total,
         status: 'pending' as const,
         createdAt: new Date(),
         estimatedDelivery: new Date(Date.now() + estimatedDeliveryTime * 60 * 1000),
         deliveryAddress,
         paymentStatus: 'pending' as const,
+        deliveryFee: deliveryType === 'delivery' ? deliveryFee : 0,
+        deliveryType: deliveryType,
       };
 
       addOrder(order);
+      setCurrentOrder(order);
       clearCart();
       
-      Alert.alert(
-        'Order Placed!',
-        'Your order has been placed successfully. You will receive updates on your order status.',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.replace('/(tabs)'),
-          },
-        ]
+      // Start live order updates (cleanup handled by useEffect in home screen)
+      simulateOrderUpdates(
+        order,
+        (updates) => {
+          updateOrder(order.id, updates);
+          const updatedOrder = { ...order, ...updates };
+          setCurrentOrder(updatedOrder);
+        },
+        () => {
+          // Order delivered
+          updateOrder(order.id, { status: 'delivered' });
+          setCurrentOrder({ ...order, status: 'delivered' });
+        }
       );
+
+      setShowOrderPlacedModal(true);
+      
+      // Remove items from cart after successful order (only the checkout items)
+      const vendorCarts = getVendorCarts();
+      if (vendorCarts.length > 1 && selectedVendorId) {
+        // Remove only items from selected vendor
+        checkoutCart.forEach(item => {
+          useStore.getState().removeFromCart(item.id);
+        });
+        // Clear selection if cart is now empty or has only one vendor
+        const remainingCart = useStore.getState().cart;
+        const remainingVendors = [...new Set(remainingCart.map(item => item.restaurantId))];
+        if (remainingVendors.length <= 1) {
+          useStore.getState().selectVendorForCheckout(null);
+        }
+      } else {
+        // Single vendor or all items - clear entire cart
+        clearCart();
+      }
     } catch (error: any) {
       Alert.alert('Error', 'Failed to place order. Please try again.');
     } finally {
@@ -250,7 +325,53 @@ export default function CheckoutScreen() {
         {/* Order Summary */}
         <View style={[styles.card, { backgroundColor: Colors[colorScheme].background }]}>
           <Text style={[styles.sectionTitle, { color: Colors[colorScheme].text }]}>Order Summary</Text>
-          {cart.map((item) => (
+          
+          {/* Pickup/Delivery Choice */}
+          <View style={styles.deliveryTypeContainer}>
+            <TouchableOpacity
+              style={[
+                styles.deliveryTypeButton,
+                deliveryType === 'pickup' && styles.deliveryTypeButtonActive,
+              ]}
+              onPress={() => setDeliveryType('pickup')}
+            >
+              <Ionicons 
+                name="storefront-outline" 
+                size={18} 
+                color={deliveryType === 'pickup' ? '#fff' : '#000'} 
+              />
+              <Text style={[
+                styles.deliveryTypeText,
+                deliveryType === 'pickup' && styles.deliveryTypeTextActive,
+              ]}>
+                Pickup
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.deliveryTypeOr}>or</Text>
+            <TouchableOpacity
+              style={[
+                styles.deliveryTypeButton,
+                deliveryType === 'delivery' && styles.deliveryTypeButtonActive,
+              ]}
+              onPress={() => setDeliveryType('delivery')}
+            >
+              <Ionicons 
+                name="bicycle-outline" 
+                size={18} 
+                color={deliveryType === 'delivery' ? '#fff' : '#000'} 
+              />
+              <Text style={[
+                styles.deliveryTypeText,
+                deliveryType === 'delivery' && styles.deliveryTypeTextActive,
+              ]}>
+                Delivery
+              </Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={[styles.divider, { backgroundColor: colorScheme === 'dark' ? '#333' : '#e5e7eb', marginVertical: 16 }]} />
+          
+          {checkoutCart.map((item) => (
             <View key={item.id} style={styles.orderItem}>
               {item.image && (
                 <Image
@@ -273,12 +394,14 @@ export default function CheckoutScreen() {
           <View style={[styles.divider, { backgroundColor: colorScheme === 'dark' ? '#333' : '#e5e7eb' }]} />
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>Subtotal</Text>
-            <Text style={[styles.summaryValue, { color: Colors[colorScheme].text }]}>R{cartTotal.toFixed(2)}</Text>
+            <Text style={[styles.summaryValue, { color: Colors[colorScheme].text }]}>R{checkoutCartTotal.toFixed(2)}</Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>Delivery Fee</Text>
-            <Text style={[styles.summaryValue, { color: Colors[colorScheme].text }]}>R{deliveryFee.toFixed(2)}</Text>
-          </View>
+          {deliveryType === 'delivery' && (
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>Delivery Fee</Text>
+              <Text style={[styles.summaryValue, { color: Colors[colorScheme].text }]}>R{deliveryFee.toFixed(2)}</Text>
+            </View>
+          )}
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>Service Fee</Text>
             <Text style={[styles.summaryValue, { color: Colors[colorScheme].text }]}>R{SERVICE_FEE.toFixed(2)}</Text>
@@ -594,6 +717,44 @@ export default function CheckoutScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Order Placed Modal */}
+      <Modal
+        visible={showOrderPlacedModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowOrderPlacedModal(false);
+          router.replace('/(tabs)');
+        }}
+      >
+        <View style={styles.orderModalOverlay}>
+          <View style={styles.orderModalContent}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                setShowOrderPlacedModal(false);
+                router.replace('/(tabs)');
+              }}
+            >
+              <Ionicons name="close" size={24} color="#000" />
+            </TouchableOpacity>
+            <Text style={styles.orderModalTitle}>Order Placed!</Text>
+            <Text style={styles.orderModalText}>
+              Your order has been placed successfully. You will receive updates on your order status.
+            </Text>
+            <TouchableOpacity
+              style={[styles.orderModalButton, styles.modalButtonPrimary]}
+              onPress={() => {
+                setShowOrderPlacedModal(false);
+                router.replace('/(tabs)');
+              }}
+            >
+              <Text style={styles.modalButtonTextPrimary}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -830,6 +991,43 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
+  deliveryTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    gap: 12,
+  },
+  deliveryTypeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#000',
+    backgroundColor: '#fff',
+    gap: 8,
+  },
+  deliveryTypeButtonActive: {
+    backgroundColor: '#000',
+    borderColor: '#000',
+  },
+  deliveryTypeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+  },
+  deliveryTypeTextActive: {
+    color: '#fff',
+  },
+  deliveryTypeOr: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
+  },
   footer: {
     borderTopWidth: 1,
     paddingHorizontal: 20,
@@ -917,5 +1115,47 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 16,
     fontWeight: '600',
+  },
+  orderModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  orderModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 20,
+    width: '90%',
+    maxWidth: 400,
+    position: 'relative',
+  },
+  orderModalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  orderModalText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  orderModalButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    padding: 4,
   },
 });

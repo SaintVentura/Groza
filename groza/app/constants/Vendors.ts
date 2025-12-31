@@ -19,10 +19,12 @@ export type Vendor = {
   deliveryFee: string;
   image: string;
   banner: string;
+  logo?: string; // Unique logo for each vendor
   offersPickup: boolean;
   offersDelivery: boolean;
   distance: string;
   location: { latitude: number; longitude: number };
+  address: string; // Physical address in Johannesburg
   demo: boolean;
   products: Product[];
 };
@@ -40,7 +42,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.2 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1928, longitude: 28.0346 }, // Braamfontein
+    address: '123 Main Street, Braamfontein, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p1', name: 'Banana Bunch', price: 12.00, weight: '1kg', image: 'https://images.unsplash.com/photo-1574226516831-e1dff420e8e9?auto=format&fit=crop&w=400&q=80', category: 'Fruits', description: 'Sweet yellow bananas' },
@@ -67,7 +70,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.7 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1989, longitude: 28.0408 }, // Newtown
+    address: '45 Commissioner Street, Newtown, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p11', name: 'Spinach Bag', price: 10.00, weight: '500g', image: 'https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=400&q=80', category: 'Vegetables', description: 'Fresh leafy spinach' },
@@ -94,7 +98,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.5 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.2012, longitude: 28.0435 }, // Maboneng
+    address: '78 Bree Street, Maboneng, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p21', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Mixed fruit variety' },
@@ -119,7 +124,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '0.8 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.2056, longitude: 28.0467 }, // Marshalltown
+    address: '92 Fox Street, Marshalltown, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p29', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -144,7 +150,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.7 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1903, longitude: 28.0442 }, // Hillbrow
+    address: '156 Jeppe Street, Hillbrow, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p37', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Mixed fruit variety' },
@@ -169,7 +176,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '0.8 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.2098, longitude: 28.0301 }, // Fordsburg
+    address: '234 Pritchard Street, Fordsburg, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p45', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -194,7 +202,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '0.9 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.2041, longitude: 28.0473 }, // City Centre (keep as center)
+    address: '67 Market Street, City Centre, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p53', name: 'Banana Bunch', price: 12.00, weight: '1kg', image: 'https://images.unsplash.com/photo-1574226516831-e1dff420e8e9?auto=format&fit=crop&w=400&q=80', category: 'Fruits', description: 'Sweet yellow bananas' },
@@ -221,7 +230,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '0.9 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1978, longitude: 28.0523 }, // Doornfontein
+    address: '189 End Street, Doornfontein, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p63', name: 'Spinach Bag', price: 10.00, weight: '500g', image: 'https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=400&q=80', category: 'Vegetables', description: 'Fresh leafy spinach' },
@@ -248,7 +258,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.5 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1889, longitude: 28.0489 }, // Berea
+    address: '312 Nugget Street, Berea, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p73', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -273,7 +284,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.5 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1921, longitude: 28.0415 }, // Hillbrow (different area)
+    address: '445 Kotze Street, Hillbrow, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p81', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -298,7 +310,8 @@ export const vendors: Vendor[] = [
     offersPickup: false,
     offersDelivery: true,
     distance: '2.3 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.2001, longitude: 28.0556 }, // Bertrams
+    address: '567 Claim Street, Bertrams, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p89', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -323,7 +336,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.7 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1867, longitude: 28.0512 }, // Yeoville
+    address: '678 Quartz Street, Yeoville, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p97', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -348,7 +362,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.5 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1845, longitude: 28.0534 }, // Observatory
+    address: '789 Main Road, Observatory, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p105', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -373,7 +388,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '0.8 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1701, longitude: 28.0101 }, // Melville
+    address: '890 High Street, Melville, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p113', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -398,7 +414,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '0.8 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1734, longitude: 28.0389 }, // Parktown
+    address: '901 7th Avenue, Parktown, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p121', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -423,7 +440,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.7 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1467, longitude: 28.0434 }, // Rosebank
+    address: '1023 Jan Smuts Avenue, Rosebank, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p129', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -448,7 +466,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '0.8 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1398, longitude: 28.0412 }, // Parkhurst
+    address: '1156 Oxford Road, Parkhurst, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p137', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -473,7 +492,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.7 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1072, longitude: 28.0567 }, // Sandton
+    address: '1289 Rivonia Road, Sandton, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p145', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -498,7 +518,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '0.8 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.1312, longitude: 28.0523 }, // Illovo
+    address: '1402 Corlett Drive, Illovo, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p153', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },
@@ -523,7 +544,8 @@ export const vendors: Vendor[] = [
     offersPickup: true,
     offersDelivery: true,
     distance: '1.7 km',
-    location: { latitude: -26.2041, longitude: 28.0473 },
+    location: { latitude: -26.0123, longitude: 28.0123 }, // Fourways
+    address: '1525 William Nicol Drive, Fourways, Johannesburg, 2001',
     demo: true,
     products: [
       { id: 'p161', name: 'Fruit Mix Box', price: 39.99, weight: '2kg', image: 'https://images.unsplash.com/photo-1464306076886-debca5e8a6b0?auto=format&fit=crop&w=400&q=80', category: 'Combos', description: 'Assorted fresh fruits' },

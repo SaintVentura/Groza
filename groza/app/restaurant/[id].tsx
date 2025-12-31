@@ -147,7 +147,11 @@ export default function VendorScreen() {
           }
         ]}
       >
-        <ScrollView style={{ flex: 1 }} removeClippedSubviews={false}>
+        <ScrollView 
+          style={{ flex: 1 }} 
+          removeClippedSubviews={false}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        >
         <View style={{ position: 'relative', marginTop: 0, paddingTop: 0 }}>
           <Image
             source={{ uri: vendorData.image }}
@@ -256,53 +260,40 @@ export default function VendorScreen() {
           </ScrollView>
         </View>
         {/* Menu Items */}
-        <View style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
-          {filteredProducts.map((item, index) => {
+        <View style={{ paddingHorizontal: 16, paddingVertical: 16 }} collapsable={false}>
+          {filteredProducts.map((item) => {
             const cartItem = cart.find(ci => ci.id === item.id);
             const isAdded = !!cartItem;
             const quantity = isAdded ? cartItem.quantity : (localQuantities[item.id] || 1);
-            const itemAnim = menuItemAnims[item.id] || new Animated.Value(1);
             
             return (
-              <Animated.View 
+              <View 
                 key={item.id} 
                 style={[
                   styles.menuItemCard,
                   { 
                     backgroundColor: Colors[colorScheme].background,
-                    transform: [
-                      {
-                        translateY: itemAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [50, 0],
-                        }),
-                      },
-                      {
-                        scale: itemAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.9, 1],
-                        }),
-                      },
-                    ],
-                    opacity: itemAnim,
                   }
                 ]}
+                collapsable={false}
+                removeClippedSubviews={false}
               >
-                <View style={{ flexDirection: 'row' }}>
+                <View style={{ flexDirection: 'row' }} collapsable={false}>
                   <Image
                     source={{ uri: item.image }}
                     style={{ width: 80, height: 80, borderRadius: 12 }}
                     resizeMode="cover"
+                    collapsable={false}
                   />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                      <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, marginLeft: 12 }} collapsable={false}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }} collapsable={false}>
+                      <View style={{ flex: 1 }} collapsable={false}>
                         <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18, marginBottom: 4 }}>{item.name}</Text>
                         {/* No description or popular field in Product type, so omit */}
                         {(() => {
                           const avgRating = getProductRating(item.id);
                           return (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }} collapsable={false}>
                               <Ionicons name={avgRating > 0 ? "star" : "star-outline"} size={14} color={avgRating > 0 ? "#fbbf24" : (colorScheme === 'dark' ? '#666' : '#aaa')} />
                               <Text style={{ color: avgRating > 0 ? Colors[colorScheme].text : (colorScheme === 'dark' ? '#666' : '#aaa'), fontSize: 14, marginLeft: 4, fontWeight: '500' }}>
                                 {avgRating > 0 ? avgRating.toFixed(1) : 'No ratings'}
@@ -311,11 +302,11 @@ export default function VendorScreen() {
                           );
                         })()}
                       </View>
-                      <View style={{ alignItems: 'flex-end' }}>
+                      <View style={{ alignItems: 'flex-end' }} collapsable={false}>
                         <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18 }}>R{item.price.toFixed(2)}</Text>
                       </View>
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 16, justifyContent: 'space-between' }} collapsable={false}>
                       {removedProductIds.includes(item.id) ? (
                         <View
                           style={{
@@ -362,8 +353,9 @@ export default function VendorScreen() {
                           </Text>
                         </TouchableOpacity>
                       )}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', opacity: removedProductIds.includes(item.id) ? 0.4 : 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', opacity: removedProductIds.includes(item.id) ? 0.4 : 1, width: 104 }} collapsable={false}>
                         <TouchableOpacity
+                          collapsable={false}
                           onPress={() => {
                             if (isAdded) {
                               const newQty = Math.max(0, quantity - 1);
@@ -387,8 +379,9 @@ export default function VendorScreen() {
                         >
                           <Text style={{ fontSize: 18, color: '#000', textAlign: 'center', textAlignVertical: 'center', lineHeight: 32 }}>-</Text>
                         </TouchableOpacity>
-                        <Text style={{ fontSize: 18, minWidth: 24, textAlign: 'center', color: '#000' }}>{quantity}</Text>
+                        <Text style={{ fontSize: 18, width: 24, textAlign: 'center', color: '#000' }} collapsable={false}>{quantity}</Text>
                         <TouchableOpacity
+                          collapsable={false}
                           onPress={() => {
                             if (isAdded) {
                               const newQty = quantity + 1;
@@ -415,7 +408,7 @@ export default function VendorScreen() {
                     </View>
                   </View>
                 </View>
-              </Animated.View>
+              </View>
             );
           })}
         </View>
@@ -521,5 +514,6 @@ const styles = StyleSheet.create({
     elevation: 6,
     borderWidth: 1,
     borderColor: '#f0f0f0',
+    minHeight: 152, // Fixed minHeight to prevent layout shifts
   },
 }); 

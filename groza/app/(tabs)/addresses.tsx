@@ -10,6 +10,8 @@ import {
   Modal,
   TextInput,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -223,16 +225,25 @@ export default function AddressesScreen() {
           animationType="slide"
           onRequestClose={() => setShowAddModal(false)}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Add New Address</Text>
-                <TouchableOpacity onPress={() => setShowAddModal(false)}>
-                  <Ionicons name="close" size={24} color="#000" />
-                </TouchableOpacity>
-              </View>
+          <KeyboardAvoidingView 
+            style={{ flex: 1 }} 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Add New Address</Text>
+                  <TouchableOpacity onPress={() => setShowAddModal(false)}>
+                    <Ionicons name="close" size={24} color="#000" />
+                  </TouchableOpacity>
+                </View>
 
-              <ScrollView style={styles.modalBody}>
+                <ScrollView 
+                  style={styles.modalBody}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ flexGrow: 1 }}
+                >
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Label (e.g., Home, Work)</Text>
                   <TextInput
@@ -403,6 +414,7 @@ export default function AddressesScreen() {
               </View>
             </View>
           </View>
+          </KeyboardAvoidingView>
         </Modal>
       </Animated.View>
     </View>

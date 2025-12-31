@@ -154,8 +154,10 @@ export default function VendorScreen() {
   const filteredProducts = useMemo(() => {
     const products = vendorData.products || [];
     if (selectedCategory === 'All') {
-      return products;
+      // Return a stable reference - create new array but maintain order
+      return [...products];
     }
+    // Filter but maintain original order from products array
     return products.filter(item => item.category === selectedCategory);
   }, [selectedCategory, vendorData.products]);
 
@@ -248,6 +250,7 @@ export default function VendorScreen() {
         onScroll={handleScroll}
         scrollEventThrottle={16}
         removeClippedSubviews={false}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
       >
         <View style={{ position: 'relative', marginTop: 0, paddingTop: 0 }}>
           <Image
@@ -258,18 +261,18 @@ export default function VendorScreen() {
         </View>
         {/* Vendor Info Card */}
         <View style={[styles.vendorInfoCard, { backgroundColor: Colors[colorScheme].background }]}>
-          <View style={styles.vendorHeader}>
+          <View style={styles.vendorHeader} collapsable={false}>
             <Image
               source={{ uri: vendorData.image }}
               style={styles.vendorLogo}
               resizeMode="cover"
             />
-            <View style={{ flex: 1, marginLeft: 12 }}>
+            <View style={{ flex: 1, marginLeft: 12 }} collapsable={false}>
               <Text style={[styles.vendorName, { color: Colors[colorScheme].text }]}>{vendorData.name}</Text>
               <Text style={[styles.vendorTagline, { color: colorScheme === 'dark' ? '#aaa' : '#666' }]}>{vendorData.tagline}</Text>
             </View>
           </View>
-          <View style={styles.vendorStats}>
+          <View style={styles.vendorStats} collapsable={false}>
             <View style={styles.statItem}>
               <Ionicons name="star" size={16} color="#fbbf24" />
               <Text style={[styles.statText, { color: Colors[colorScheme].text }]}>
@@ -306,10 +309,18 @@ export default function VendorScreen() {
               </Text>
             </View>
           )}
+          {vendorData.address && (
+            <View style={[styles.deliveryInfo, { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colorScheme === 'dark' ? '#333' : '#e5e7eb' }]}>
+              <Ionicons name="location" size={16} color={colorScheme === 'dark' ? '#aaa' : '#666'} />
+              <Text style={[styles.deliveryText, { color: colorScheme === 'dark' ? '#aaa' : '#666', marginLeft: 8, flex: 1 }]}>
+                {vendorData.address.replace(/, \d{4}$/, '')}
+              </Text>
+            </View>
+          )}
         </View>
         {/* Categories Card */}
-        <View style={[styles.categoriesCard, { backgroundColor: Colors[colorScheme].background }]}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={[styles.categoriesCard, { backgroundColor: Colors[colorScheme].background }]} collapsable={false}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} removeClippedSubviews={false}>
             {categories.map((category) => (
               <TouchableOpacity
                 key={category}
@@ -333,7 +344,7 @@ export default function VendorScreen() {
           </ScrollView>
         </View>
         {/* Menu Items */}
-        <View style={{ paddingVertical: 16 }}>
+        <View style={{ paddingVertical: 16 }} collapsable={false}>
           {/* Show message and icon if no items in selected category */}
           {selectedCategory === 'Vegetables' && filteredProducts.length === 0 && (
             <View style={{ alignItems: 'center', marginVertical: 60 }}>
@@ -347,7 +358,7 @@ export default function VendorScreen() {
               <Text style={{ color: '#aaa', fontSize: 18, fontWeight: '600' }}>No fruits here</Text>
             </View>
           )}
-          {filteredProducts.map((item, index) => {
+          {filteredProducts.map((item) => {
             const cartItem = cart.find(ci => ci.id === item.id);
             const isAdded = !!cartItem;
             const quantity = isAdded ? cartItem.quantity : (localQuantities[item.id] || 1);
@@ -375,10 +386,11 @@ export default function VendorScreen() {
                     source={{ uri: item.image }}
                     style={{ width: 96, height: 120, borderRadius: 12 }}
                     resizeMode="cover"
+                    collapsable={false}
                   />
                   <View style={{ flex: 1, marginLeft: 12 }} collapsable={false}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                      <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }} collapsable={false}>
+                      <View style={{ flex: 1 }} collapsable={false}>
                         <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18, marginBottom: 4 }}>{item.name}</Text>
                         {item.description && (
                           <Text style={{ color: colorScheme === 'dark' ? '#aaa' : '#666', fontSize: 14, marginBottom: 8 }}>{item.description}</Text>
@@ -386,7 +398,7 @@ export default function VendorScreen() {
                         {(() => {
                           const avgRating = getProductRating(item.id);
                           return (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }} collapsable={false}>
                               <Ionicons name={avgRating > 0 ? "star" : "star-outline"} size={14} color={avgRating > 0 ? "#fbbf24" : (colorScheme === 'dark' ? '#666' : '#aaa')} />
                               <Text style={{ color: avgRating > 0 ? Colors[colorScheme].text : (colorScheme === 'dark' ? '#666' : '#aaa'), fontSize: 14, marginLeft: 4, fontWeight: '500' }}>
                                 {avgRating > 0 ? avgRating.toFixed(1) : 'No ratings'}
@@ -395,7 +407,7 @@ export default function VendorScreen() {
                           );
                         })()}
                       </View>
-                      <View style={{ alignItems: 'flex-end' }}>
+                      <View style={{ alignItems: 'flex-end' }} collapsable={false}>
                         <Text style={{ fontWeight: 'bold', color: Colors[colorScheme].text, fontSize: 18 }}>R{item.price.toFixed(2)}</Text>
                       </View>
                     </View>
@@ -415,25 +427,27 @@ export default function VendorScreen() {
                               justifyContent: 'center',
                               flexDirection: 'row',
                             }}
+                            collapsable={false}
                           >
                             <Ionicons name="trash" size={18} color="#fff" style={{ marginRight: 4, marginLeft: 0 }} />
                             <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }} numberOfLines={1}>Removed</Text>
                           </View>
                         ) : (
-                          <TouchableOpacity
-                            style={{
-                              backgroundColor: isAdded ? '#22c55e' : '#000',
-                              borderWidth: 0,
-                              paddingHorizontal: 12,
-                              paddingVertical: 10,
-                              borderRadius: 8,
-                              width: 110,
-                              height: 36,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              opacity: 1,
-                            }}
-                            onPress={() => {
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: isAdded ? '#22c55e' : '#000',
+                            borderWidth: 0,
+                            paddingHorizontal: 12,
+                            paddingVertical: 10,
+                            borderRadius: 8,
+                            width: 110,
+                            height: 36,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            opacity: 1,
+                          }}
+                          collapsable={false}
+                          onPress={() => {
                               if (!isAdded) {
                                 handleAddToCart(item, quantity);
                               } else {
@@ -449,6 +463,7 @@ export default function VendorScreen() {
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', opacity: removedProductIds.includes(item.id) ? 0.4 : 1, width: 104 }} collapsable={false}>
                         <TouchableOpacity
+                          collapsable={false}
                           onPress={() => {
                             if (isAdded) {
                               const newQty = Math.max(0, quantity - 1);
@@ -472,8 +487,9 @@ export default function VendorScreen() {
                         >
                           <Text style={{ fontSize: 18, color: '#000', textAlign: 'center', textAlignVertical: 'center', lineHeight: 32 }}>-</Text>
                         </TouchableOpacity>
-                        <Text style={{ fontSize: 18, width: 24, textAlign: 'center', color: '#000' }}>{quantity}</Text>
+                        <Text style={{ fontSize: 18, width: 24, textAlign: 'center', color: '#000' }} collapsable={false}>{quantity}</Text>
                         <TouchableOpacity
+                          collapsable={false}
                           onPress={() => {
                             if (isAdded) {
                               const newQty = quantity + 1;
@@ -632,6 +648,6 @@ const styles = StyleSheet.create({
     elevation: 6,
     borderWidth: 1,
     borderColor: '#f0f0f0',
-    minHeight: 152, // Increased to accommodate all content consistently
+    minHeight: 152, // Fixed minHeight to prevent layout shifts
   },
 }); 

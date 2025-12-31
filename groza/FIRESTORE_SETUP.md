@@ -54,3 +54,6 @@ After completing the steps above:
 
 Your `firebase.json` shows location `africa-south1`. Make sure the location you choose in Step 4 matches this, or update `firebase.json` to match your chosen location.
 
+
+
+

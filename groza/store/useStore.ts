@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
 
 export interface User {
   id: string;
@@ -35,6 +37,8 @@ export interface Order {
   estimatedDelivery?: Date;
   deliveryAddress: string;
   paymentStatus: 'pending' | 'paid' | 'failed';
+  deliveryFee: number;
+  deliveryType: 'pickup' | 'delivery';
 }
 
 export interface Address {
@@ -110,15 +114,17 @@ interface AppState {
   addFavourite: (vendor: any) => void; // Assuming 'any' for now
   removeFavourite: (vendorId: string) => void;
   // Address actions
-  addAddress: (address: Address) => void;
-  updateAddress: (addressId: string, updates: Partial<Address>) => void;
-  removeAddress: (addressId: string) => void;
-  setDefaultAddress: (addressId: string) => void;
+  addAddress: (address: Address) => Promise<void>;
+  updateAddress: (addressId: string, updates: Partial<Address>) => Promise<void>;
+  removeAddress: (addressId: string) => Promise<void>;
+  setDefaultAddress: (addressId: string) => Promise<void>;
   // Payment method actions
-  addPaymentMethod: (method: PaymentMethod) => void;
-  updatePaymentMethod: (methodId: string, updates: Partial<PaymentMethod>) => void;
-  removePaymentMethod: (methodId: string) => void;
-  setDefaultPaymentMethod: (methodId: string) => void;
+  addPaymentMethod: (method: PaymentMethod) => Promise<void>;
+  updatePaymentMethod: (methodId: string, updates: Partial<PaymentMethod>) => Promise<void>;
+  removePaymentMethod: (methodId: string) => Promise<void>;
+  setDefaultPaymentMethod: (methodId: string) => Promise<void>;
+  // Initialization
+  loadPersistedData: () => Promise<void>;
   // Rating actions
   addProductRating: (rating: ProductRating) => void;
   updateProductRating: (productId: string, customerId: string, newRating: number) => void;
@@ -126,6 +132,10 @@ interface AppState {
   hasRatedProduct: (productId: string, customerId: string) => boolean;
   canRateProduct: (productId: string, customerId: string, orders: Order[]) => boolean;
   getVendorRating: (vendorId: string, productIds: string[]) => number; // Calculate vendor rating from products
+  showMultiVendorPopup: () => void;
+  dismissMultiVendorPopup: () => void;
+  getVendorCarts: () => Array<{ restaurantId: string; restaurantName: string; items: CartItem[] }>;
+  selectVendorForCheckout: (restaurantId: string) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -154,6 +164,10 @@ export const useStore = create<AppState>((set, get) => ({
   ],
   // Product Ratings
   productRatings: [],
+  
+  // Multi-vendor cart state
+  showMultiVendorModal: false,
+  selectedVendorId: null,
 
   // Actions
   setUser: (user) => set({ user, isAuthenticated: !!user }),
@@ -161,21 +175,68 @@ export const useStore = create<AppState>((set, get) => ({
   
   addToCart: (item) => {
     const { cart } = get();
+    
+    // Check if adding from a different vendor
+    const existingVendors = [...new Set(cart.map(cartItem => cartItem.restaurantId))];
+    const isNewVendor = !existingVendors.includes(item.restaurantId) && cart.length > 0;
+    
+    // Find existing item in cart
     const existingItem = cart.find(cartItem => cartItem.id === item.id);
     
+    let updatedCart: CartItem[];
     if (existingItem) {
-      const updatedCart = cart.map(cartItem =>
+      // Update quantity of existing item
+      updatedCart = cart.map(cartItem =>
         cartItem.id === item.id
           ? { ...cartItem, quantity: cartItem.quantity + item.quantity }
           : cartItem
       );
-      const cartTotal = updatedCart.reduce((total, item) => total + (item.price * item.quantity), 0);
-      set({ cart: updatedCart, cartTotal });
     } else {
-      const updatedCart = [...cart, item];
-      const cartTotal = updatedCart.reduce((total, item) => total + (item.price * item.quantity), 0);
-      set({ cart: updatedCart, cartTotal });
+      // Add new item
+      updatedCart = [...cart, item];
     }
+    
+    const cartTotal = updatedCart.reduce((total, item) => total + (item.price * item.quantity), 0);
+    set({ cart: updatedCart, cartTotal });
+    
+    // Show popup if adding from a different vendor
+    if (isNewVendor) {
+      setTimeout(() => {
+        get().showMultiVendorPopup();
+      }, 100);
+    }
+  },
+  
+  showMultiVendorPopup: () => {
+    // This will be handled by a callback or global state
+    // For now, we'll set a flag that components can listen to
+    set({ showMultiVendorModal: true });
+  },
+  
+  dismissMultiVendorPopup: () => {
+    set({ showMultiVendorModal: false });
+  },
+  
+  getVendorCarts: () => {
+    const { cart } = get();
+    const vendorGroups = cart.reduce((acc, item) => {
+      if (!acc[item.restaurantId]) {
+        acc[item.restaurantId] = {
+          restaurantId: item.restaurantId,
+          restaurantName: item.restaurantName,
+          items: [],
+        };
+      }
+      acc[item.restaurantId].items.push(item);
+      return acc;
+    }, {} as Record<string, { restaurantId: string; restaurantName: string; items: CartItem[] }>);
+    return Object.values(vendorGroups);
+  },
+  
+  selectVendorForCheckout: (restaurantId: string | null) => {
+    // Just set the selected vendor ID, don't filter cart
+    // The cart screen will filter the display
+    set({ selectedVendorId: restaurantId });
   },
   
   removeFromCart: (itemId) => {
@@ -230,22 +291,33 @@ export const useStore = create<AppState>((set, get) => ({
     set({ favourites: favourites.filter((v) => v.id !== vendorId) });
   },
   // Address actions
-  addAddress: (address) => {
+  addAddress: async (address) => {
     const { addresses } = get();
     const newAddress = {
       ...address,
       isDefault: addresses.length === 0, // First address is default
     };
-    set({ addresses: [...addresses, newAddress] });
+    const updatedAddresses = [...addresses, newAddress];
+    set({ addresses: updatedAddresses });
+    try {
+      await AsyncStorage.setItem('groza_addresses', JSON.stringify(updatedAddresses));
+    } catch (error) {
+      console.error('Error saving addresses:', error);
+    }
   },
-  updateAddress: (addressId, updates) => {
+  updateAddress: async (addressId, updates) => {
     const { addresses } = get();
     const updatedAddresses = addresses.map((addr) =>
       addr.id === addressId ? { ...addr, ...updates } : addr
     );
     set({ addresses: updatedAddresses });
+    try {
+      await AsyncStorage.setItem('groza_addresses', JSON.stringify(updatedAddresses));
+    } catch (error) {
+      console.error('Error saving addresses:', error);
+    }
   },
-  removeAddress: (addressId) => {
+  removeAddress: async (addressId) => {
     const { addresses } = get();
     const updatedAddresses = addresses.filter((addr) => addr.id !== addressId);
     // If we removed the default address, make the first one default
@@ -253,32 +325,53 @@ export const useStore = create<AppState>((set, get) => ({
       updatedAddresses[0].isDefault = true;
     }
     set({ addresses: updatedAddresses });
+    try {
+      await AsyncStorage.setItem('groza_addresses', JSON.stringify(updatedAddresses));
+    } catch (error) {
+      console.error('Error saving addresses:', error);
+    }
   },
-  setDefaultAddress: (addressId) => {
+  setDefaultAddress: async (addressId) => {
     const { addresses } = get();
     const updatedAddresses = addresses.map((addr) => ({
       ...addr,
       isDefault: addr.id === addressId,
     }));
     set({ addresses: updatedAddresses });
+    try {
+      await AsyncStorage.setItem('groza_addresses', JSON.stringify(updatedAddresses));
+    } catch (error) {
+      console.error('Error saving addresses:', error);
+    }
   },
   // Payment method actions
-  addPaymentMethod: (method) => {
+  addPaymentMethod: async (method) => {
     const { paymentMethods } = get();
     const newMethod = {
       ...method,
       isDefault: paymentMethods.length === 0,
     };
-    set({ paymentMethods: [...paymentMethods, newMethod] });
+    const updatedMethods = [...paymentMethods, newMethod];
+    set({ paymentMethods: updatedMethods });
+    try {
+      await AsyncStorage.setItem('groza_paymentMethods', JSON.stringify(updatedMethods));
+    } catch (error) {
+      console.error('Error saving payment methods:', error);
+    }
   },
-  updatePaymentMethod: (methodId, updates) => {
+  updatePaymentMethod: async (methodId, updates) => {
     const { paymentMethods } = get();
     const updatedMethods = paymentMethods.map((method) =>
       method.id === methodId ? { ...method, ...updates } : method
     );
     set({ paymentMethods: updatedMethods });
+    try {
+      await AsyncStorage.setItem('groza_paymentMethods', JSON.stringify(updatedMethods));
+    } catch (error) {
+      console.error('Error saving payment methods:', error);
+    }
   },
-  removePaymentMethod: (methodId) => {
+  removePaymentMethod: async (methodId) => {
     const { paymentMethods } = get();
     // Prevent deletion of cash on delivery payment methods
     const methodToRemove = paymentMethods.find((m) => m.id === methodId);
@@ -292,14 +385,24 @@ export const useStore = create<AppState>((set, get) => ({
       updatedMethods[0].isDefault = true;
     }
     set({ paymentMethods: updatedMethods });
+    try {
+      await AsyncStorage.setItem('groza_paymentMethods', JSON.stringify(updatedMethods));
+    } catch (error) {
+      console.error('Error saving payment methods:', error);
+    }
   },
-  setDefaultPaymentMethod: (methodId) => {
+  setDefaultPaymentMethod: async (methodId) => {
     const { paymentMethods } = get();
     const updatedMethods = paymentMethods.map((method) => ({
       ...method,
       isDefault: method.id === methodId,
     }));
     set({ paymentMethods: updatedMethods });
+    try {
+      await AsyncStorage.setItem('groza_paymentMethods', JSON.stringify(updatedMethods));
+    } catch (error) {
+      console.error('Error saving payment methods:', error);
+    }
   },
   // Rating actions
   addProductRating: (rating) => {
@@ -328,7 +431,13 @@ export const useStore = create<AppState>((set, get) => ({
   getProductRating: (productId) => {
     const { productRatings } = get();
     const ratings = productRatings.filter((r) => r.productId === productId);
-    if (ratings.length === 0) return 0;
+    if (ratings.length === 0) {
+      // Generate consistent random rating based on productId (3.5-5.0 range)
+      // This ensures products always have realistic ratings
+      const hash = productId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const randomRating = 3.5 + (hash % 150) / 100; // Range: 3.5 to 5.0
+      return Math.round(randomRating * 10) / 10; // Round to 1 decimal
+    }
     const sum = ratings.reduce((acc, r) => acc + r.rating, 0);
     return sum / ratings.length;
   },
@@ -346,11 +455,52 @@ export const useStore = create<AppState>((set, get) => ({
     );
   },
   getVendorRating: (vendorId, productIds) => {
-    const { productRatings } = get();
+    const { productRatings, getProductRating } = get();
     // Get all ratings for products from this vendor
     const relevantRatings = productRatings.filter((r) => productIds.includes(r.productId));
+    
+    // If no ratings exist, calculate average from default product ratings
+    if (relevantRatings.length === 0 && productIds.length > 0) {
+      const productRatings = productIds.map(id => getProductRating(id));
+      const sum = productRatings.reduce((acc, r) => acc + r, 0);
+      return sum / productRatings.length;
+    }
+    
     if (relevantRatings.length === 0) return 0;
     const sum = relevantRatings.reduce((acc, r) => acc + r.rating, 0);
     return sum / relevantRatings.length;
+  },
+  // Load persisted data from AsyncStorage
+  loadPersistedData: async () => {
+    try {
+      const [addressesData, paymentMethodsData] = await Promise.all([
+        AsyncStorage.getItem('groza_addresses'),
+        AsyncStorage.getItem('groza_paymentMethods'),
+      ]);
+
+      if (addressesData) {
+        const addresses = JSON.parse(addressesData);
+        set({ addresses });
+      }
+
+      if (paymentMethodsData) {
+        const paymentMethods = JSON.parse(paymentMethodsData);
+        set({ paymentMethods });
+      } else {
+        // Set default cash payment method if none exists
+        const defaultPaymentMethods = [
+          {
+            id: 'cash-1',
+            type: 'cash',
+            label: 'Cash on Delivery',
+            isDefault: true,
+          },
+        ];
+        set({ paymentMethods: defaultPaymentMethods });
+        await AsyncStorage.setItem('groza_paymentMethods', JSON.stringify(defaultPaymentMethods));
+      }
+    } catch (error) {
+      console.error('Error loading persisted data:', error);
+    }
   },
 })); 

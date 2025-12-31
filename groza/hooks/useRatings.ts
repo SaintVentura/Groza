@@ -74,3 +74,6 @@ export const useLoadVendorRatings = (vendorProductIds: string[]) => {
   }, [vendorProductIds.join(',')]);
 };
 
+
+
+

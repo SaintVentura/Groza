@@ -13,6 +13,7 @@ import {
   Switch,
   Keyboard,
   Image,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -21,7 +22,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from 'react-native';
 import * as Linking from 'expo-linking';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
-import { signUp, checkUsernameAvailability } from '@/services/auth';
+import { signUp, checkUsernameAvailability, checkEmailExists, signInWithGoogle, signInWithApple, completeSocialSignUp } from '@/services/auth';
 
 interface OnboardingData {
   phone: string;
@@ -51,6 +52,8 @@ export default function OnboardingScreen() {
   const [otpSent, setOtpSent] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [showEmailExistsModal, setShowEmailExistsModal] = useState(false);
+  const [isSocialSignUp, setIsSocialSignUp] = useState(false);
   
   const [data, setData] = useState<OnboardingData>({
     phone: '',
@@ -130,6 +133,10 @@ export default function OnboardingScreen() {
         // Username availability check will be done on step 5 (Password step)
         return true;
       case 5: // Password
+        // Skip password validation for social sign-ups (Google/Apple)
+        if (isSocialSignUp) {
+          return true;
+        }
         if (!data.password || data.password.length < 6) {
           Alert.alert('Invalid Password', 'Password must be at least 6 characters');
           return false;
@@ -152,56 +159,61 @@ export default function OnboardingScreen() {
 
   const handleGoogleSignIn = async () => {
     try {
-      // TODO: Implement with Firebase GoogleAuthProvider
-      // Example implementation:
-      // import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-      // const provider = new GoogleAuthProvider();
-      // const result = await signInWithPopup(auth, provider);
-      // const user = result.user;
-      // const name = user.displayName || '';
-      // const email = user.email || '';
+      const result = await signInWithGoogle();
       
-      // For demo purposes, simulate Google sign-in with auto-fill
-      const mockGoogleEmail = 'user@gmail.com';
-      const mockGoogleName = 'John Doe'; // Would come from Google profile
-      
-      setData({
-        ...data,
-        email: mockGoogleEmail,
-        name: mockGoogleName,
-      });
-      
-      // Skip to name step (step 3) since email and name are filled
-      setCurrentStep(3);
+      if ('user' in result) {
+        // User exists, sign them in
+        setUser(result.user);
+        setAuthenticated(true);
+        router.replace('/(tabs)');
+      } else {
+        // New user, pre-fill email and name, continue to name step
+        setIsSocialSignUp(true);
+        setData({
+          ...data,
+          email: result.email,
+          name: result.name,
+        });
+        setCurrentStep(3); // Go to name step
+      }
     } catch (error: any) {
+      if (error.message === 'Sign-in cancelled') {
+        // User cancelled, ignore
+        return;
+      }
       Alert.alert('Error', error.message || 'Failed to sign in with Google');
     }
   };
 
   const handleAppleSignIn = async () => {
     try {
-      // TODO: Implement with Firebase AppleAuthProvider
-      // Example implementation:
-      // import { OAuthProvider, signInWithPopup } from 'firebase/auth';
-      // const provider = new OAuthProvider('apple.com');
-      // const result = await signInWithPopup(auth, provider);
-      // const user = result.user;
-      // const name = user.displayName || '';
-      // const email = user.email || '';
+      if (Platform.OS !== 'ios' && Platform.OS !== 'web') {
+        Alert.alert('Apple Sign-In', 'Apple Sign-In is only available on iOS devices and web.');
+        return;
+      }
       
-      // For demo purposes, simulate Apple sign-in with auto-fill
-      const mockAppleEmail = 'user@icloud.com';
-      const mockAppleName = 'Jane Smith'; // Would come from Apple profile
+      const result = await signInWithApple();
       
-      setData({
-        ...data,
-        email: mockAppleEmail,
-        name: mockAppleName,
-      });
-      
-      // Skip to name step (step 3) since email and name are filled
-      setCurrentStep(3);
+      if ('user' in result) {
+        // User exists, sign them in
+        setUser(result.user);
+        setAuthenticated(true);
+        router.replace('/(tabs)');
+      } else {
+        // New user, pre-fill email and name, continue to name step
+        setIsSocialSignUp(true);
+        setData({
+          ...data,
+          email: result.email,
+          name: result.name,
+        });
+        setCurrentStep(3); // Go to name step
+      }
     } catch (error: any) {
+      if (error.message === 'Sign-in cancelled') {
+        // User cancelled, ignore
+        return;
+      }
       Alert.alert('Error', error.message || 'Failed to sign in with Apple');
     }
   };
@@ -210,14 +222,35 @@ export default function OnboardingScreen() {
     // Skip validation for welcome screen (step 0) and review/OTP screens (steps 8+)
     // Only validate steps 1-6 (phone through address)
     if (currentStep >= 1 && currentStep <= 6) {
-      // For password step (step 5), check username availability before proceeding
-      if (currentStep === 5) {
-        // First validate password step normally
+      // For email step (step 2), check if email already exists
+      if (currentStep === 2) {
+        // First validate email format
         if (!validateStep(currentStep)) {
           return;
         }
         
-        // Then check if username from step 4 is available
+        // Then check if email is already registered
+        const emailTrimmed = data.email.trim().toLowerCase();
+        if (emailTrimmed) {
+          try {
+            const emailExists = await checkEmailExists(emailTrimmed);
+            if (emailExists) {
+              setShowEmailExistsModal(true);
+              return;
+            }
+          } catch (error: any) {
+            Alert.alert('Error', error.message || 'Could not check email. Please try again.');
+            return;
+          }
+        }
+      } else if (currentStep === 5) {
+        // For password step (step 5), check username availability before proceeding
+        // Skip password validation for social sign-ups
+        if (!isSocialSignUp && !validateStep(currentStep)) {
+          return;
+        }
+        
+        // Check if username from step 4 is available
         const usernameTrimmed = data.username.trim();
         if (usernameTrimmed && usernameTrimmed.length >= 3) {
           try {
@@ -258,14 +291,24 @@ export default function OnboardingScreen() {
       await sendOTP();
       setCurrentStep(9);
     } else if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1);
+      let nextStep = currentStep + 1;
+      // Skip password step (5) for social sign-ups
+      if (isSocialSignUp && nextStep === 5) {
+        nextStep = 6; // Skip to address step
+      }
+      setCurrentStep(nextStep);
       scrollViewRef.current?.scrollTo({ y: 0, animated: true });
     }
   };
 
   const handleBack = () => {
     if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
+      let prevStep = currentStep - 1;
+      // Skip password step (5) for social sign-ups when going back
+      if (isSocialSignUp && prevStep === 5) {
+        prevStep = 4; // Go back to username step
+      }
+      setCurrentStep(prevStep);
       scrollViewRef.current?.scrollTo({ y: 0, animated: true });
     }
   };
@@ -301,16 +344,32 @@ export default function OnboardingScreen() {
         // Complete signup using Firebase
         const cleanedPhone = data.phone.replace(/\s/g, '');
         
-        // Create user account in Firebase
-        const userData = await signUp(
-          data.email.trim().toLowerCase(),
-          data.password,
-          data.name.trim(),
-          data.username.trim(),
-          cleanedPhone,
-          data.notificationsEnabled,
-          'customer'
-        );
+        // Check if user is already authenticated (from Google/Apple sign-in)
+        const { auth } = await import('@/services/firebase');
+        const firebaseUser = auth.currentUser;
+        
+        let userData;
+        if (isSocialSignUp && firebaseUser) {
+          // User authenticated via Google/Apple, complete sign-up without password
+          userData = await completeSocialSignUp(
+            data.name.trim(),
+            data.username.trim(),
+            cleanedPhone,
+            data.notificationsEnabled,
+            'customer'
+          );
+        } else {
+          // Regular sign-up with email/password
+          userData = await signUp(
+            data.email.trim().toLowerCase(),
+            data.password,
+            data.name.trim(),
+            data.username.trim(),
+            cleanedPhone,
+            data.notificationsEnabled,
+            'customer'
+          );
+        }
         
         setUser(userData);
         setAuthenticated(true);
@@ -901,6 +960,50 @@ export default function OnboardingScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        {/* Email Already Registered Modal */}
+        <Modal
+          visible={showEmailExistsModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowEmailExistsModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setShowEmailExistsModal(false)}
+              >
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Email Already Registered</Text>
+              <Text style={styles.modalText}>
+                This email is already registered. Would you like to sign in instead, or use a different email?
+              </Text>
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonSecondary]}
+                  onPress={() => {
+                    setShowEmailExistsModal(false);
+                    // Clear email field to let user change it
+                    setData({ ...data, email: '' });
+                  }}
+                >
+                  <Text style={styles.modalButtonTextSecondary}>Change Email</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonPrimary]}
+                  onPress={() => {
+                    setShowEmailExistsModal(false);
+                    router.replace('/(auth)/login');
+                  }}
+                >
+                  <Text style={styles.modalButtonTextPrimary}>Sign In</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -1133,6 +1236,60 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     fontSize: 14,
     color: '#666',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+    position: 'relative',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#000',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 24,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#000',
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#f0f0f0',
+  },
+  modalButtonTextPrimary: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalButtonTextSecondary: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

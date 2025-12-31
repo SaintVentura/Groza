@@ -29,13 +29,15 @@ export const useScrollPreservation = (screenKey: string) => {
     React.useCallback(() => {
       // Restore saved position for all pages
       const savedPosition = scrollPositions.get(screenKey);
-      if (savedPosition && scrollViewRef.current) {
+      if (savedPosition) {
         setTimeout(() => {
-          scrollViewRef.current?.scrollTo({
-            x: savedPosition.x,
-            y: savedPosition.y,
-            animated: false,
-          });
+          if (scrollViewRef.current && typeof scrollViewRef.current.scrollTo === 'function') {
+            scrollViewRef.current.scrollTo({
+              x: savedPosition.x,
+              y: savedPosition.y,
+              animated: false,
+            });
+          }
         }, 100);
       }
     }, [screenKey])

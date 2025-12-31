@@ -19,16 +19,23 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCurrentUser } from '@/services/auth';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/services/firebase';
+import SplashScreen from '@/components/SplashScreen';
 
 export default function RootLayout() {
   const colorScheme = 'light';
-  const { setUser, setAuthenticated, setLoading, cart, isAuthenticated, isLoading } = useStore();
+  const { setUser, setAuthenticated, setLoading, cart, isAuthenticated, isLoading, currentOrder, showMultiVendorModal, dismissMultiVendorPopup } = useStore();
   const router = useRouter();
   const pathname = usePathname();
   const [showSignupModal, setShowSignupModal] = React.useState(false);
+  const [showSplash, setShowSplash] = React.useState(true);
   const hasShownWelcomeThisSession = React.useRef(false);
   const authInitialized = React.useRef(false);
   const wasAuthenticatedOnStartup = React.useRef<boolean | null>(null);
+
+  // Load persisted data on app start
+  useEffect(() => {
+    useStore.getState().loadPersistedData();
+  }, []);
 
   // Initialize Firebase Auth state listener
   useEffect(() => {
@@ -162,6 +169,11 @@ export default function RootLayout() {
 
   const statusBarHeight = Platform.OS === 'ios' ? 44 : RNStatusBar.currentHeight || 24;
 
+  // Show splash screen on app start
+  if (showSplash) {
+    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
@@ -174,30 +186,71 @@ export default function RootLayout() {
             <Stack.Screen name="+not-found" />
           </Stack>
           <StatusBar translucent backgroundColor="transparent" style="dark" />
-          <Animated.View
-            style={{
-              ...styles.floatingCartContainer,
-              opacity: popAnim,
-              transform: [
-                { scale: popAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) },
-              ],
-              pointerEvents: cartCount > 0 ? 'auto' : 'none',
-            }}
-            pointerEvents="box-none"
-          >
-            <TouchableOpacity
-              style={styles.floatingCartButton}
-              onPress={() => router.push('/(tabs)/cart')}
-              activeOpacity={0.85}
-              disabled={cartCount === 0}
+          {/* Floating Cart Button - Hide on order details page */}
+          {!pathname?.includes('order-details') && (
+            <Animated.View
+              style={{
+                ...styles.floatingCartContainer,
+                opacity: popAnim,
+                transform: [
+                  { scale: popAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) },
+                ],
+                pointerEvents: cartCount > 0 ? 'auto' : 'none',
+              }}
+              pointerEvents="box-none"
             >
-              <Ionicons name="bag" size={32} color="#fff" />
-              <Text style={styles.floatingCartLabel}>View Cart</Text>
-              <View style={styles.cartBadge}>
-                <Text style={styles.cartBadgeText}>{cartCount}</Text>
+              <TouchableOpacity
+                style={styles.floatingCartButton}
+                onPress={() => router.push('/(tabs)/cart')}
+                activeOpacity={0.85}
+                disabled={cartCount === 0}
+              >
+                <Ionicons name="bag" size={32} color="#fff" />
+                <Text style={styles.floatingCartLabel}>View Cart</Text>
+                <View style={styles.cartBadge}>
+                  <Text style={styles.cartBadgeText}>{cartCount}</Text>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
+          {/* Global Floating Order Popup */}
+          {currentOrder && currentOrder.status !== 'delivered' && !pathname.includes('/order-details') && (
+            <TouchableOpacity
+              style={{
+                position: 'absolute',
+                bottom: 100,
+                right: 20,
+                backgroundColor: '#000',
+                borderRadius: 24,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 12,
+                elevation: 8,
+                zIndex: 1001,
+                minWidth: 120,
+              }}
+              onPress={() => router.push(`/order-details?orderId=${currentOrder.id}`)}
+              activeOpacity={0.9}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, color: '#fff', marginBottom: 2, fontWeight: '500' }}>
+                  Order Arriving
+                </Text>
+                <Text style={{ fontSize: 14, color: '#fff', fontWeight: '600' }}>
+                  {currentOrder.estimatedDelivery 
+                    ? new Date(currentOrder.estimatedDelivery).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : '--:--'}
+                </Text>
               </View>
+              <Ionicons name="chevron-forward" size={16} color="#fff" style={{ marginLeft: 8 }} />
             </TouchableOpacity>
-          </Animated.View>
+          )}
           
           {/* Signup Modal */}
           <Modal
@@ -243,6 +296,40 @@ export default function RootLayout() {
                     }}
                   >
                     <Text style={styles.modalButtonTextPrimary}>Sign Up</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Multi-Vendor Cart Modal */}
+          <Modal
+            visible={showMultiVendorModal}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={dismissMultiVendorPopup}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={dismissMultiVendorPopup}
+                >
+                  <Ionicons name="close" size={24} color="#000" />
+                </TouchableOpacity>
+                <Text style={styles.modalTitle}>Multiple Vendors in Cart</Text>
+                <Text style={styles.modalText}>
+                  You have items from more than one vendor. Select one vendor to proceed to checkout.
+                </Text>
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonPrimary]}
+                    onPress={() => {
+                      dismissMultiVendorPopup();
+                      router.push('/(tabs)/cart');
+                    }}
+                  >
+                    <Text style={styles.modalButtonTextPrimary}>Go to Cart</Text>
                   </TouchableOpacity>
                 </View>
               </View>

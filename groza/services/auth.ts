@@ -5,11 +5,19 @@ import {
   updateProfile,
   sendPasswordResetEmail,
   updatePassword,
-  sendEmailVerification
+  sendEmailVerification,
+  GoogleAuthProvider,
+  OAuthProvider,
+  signInWithCredential
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { Platform, Linking } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { auth, db } from './firebase';
 import { User } from '../store/useStore';
+
+// Complete auth session for better UX
+WebBrowser.maybeCompleteAuthSession();
 
 // Check if username is unique
 export const checkUsernameAvailability = async (username: string): Promise<boolean> => {
@@ -20,6 +28,18 @@ export const checkUsernameAvailability = async (username: string): Promise<boole
     return querySnapshot.empty; // Returns true if username is available
   } catch (error: any) {
     throw new Error('Error checking username availability');
+  }
+};
+
+// Check if email is already registered
+export const checkEmailExists = async (email: string): Promise<boolean> => {
+  try {
+    const emailLower = email.trim().toLowerCase();
+    const q = query(collection(db, 'users'), where('email', '==', emailLower));
+    const querySnapshot = await getDocs(q);
+    return !querySnapshot.empty; // Returns true if email exists
+  } catch (error: any) {
+    throw new Error('Error checking email availability');
   }
 };
 
@@ -371,5 +391,143 @@ export const getCurrentUser = async (): Promise<User | null> => {
     return userDoc.data() as User;
   } catch (error: any) {
     throw new Error(error.message);
+  }
+};
+
+// Complete sign-up for users who authenticated with Google/Apple (no password needed)
+export const completeSocialSignUp = async (
+  name: string,
+  username: string,
+  phone: string,
+  newsletterSubscription: boolean = false,
+  role: 'customer' | 'driver' | 'restaurant' | 'admin' = 'customer'
+): Promise<User> => {
+  try {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser || !firebaseUser.email) {
+      throw new Error('No authenticated user found');
+    }
+
+    // Check username availability
+    const usernameLower = username.trim().toLowerCase();
+    const isAvailable = await checkUsernameAvailability(usernameLower);
+    if (!isAvailable) {
+      throw new Error('Username is taken');
+    }
+
+    // Update Firebase profile with name
+    await updateProfile(firebaseUser, { displayName: name.trim() });
+
+    // Create user document in Firestore
+    const userData: User = {
+      id: firebaseUser.uid,
+      email: firebaseUser.email,
+      name: name.trim(),
+      username: usernameLower,
+      phone: phone.trim(),
+      role,
+      newsletterSubscription,
+    };
+
+    await setDoc(doc(db, 'users', firebaseUser.uid), userData);
+    
+    // Store username mapping for uniqueness checking
+    await setDoc(doc(db, 'usernames', usernameLower), {
+      username: usernameLower,
+      userId: firebaseUser.uid,
+      createdAt: new Date(),
+    });
+
+    return userData;
+  } catch (error: any) {
+    throw new Error(error.message);
+  }
+};
+
+// Sign in with Google or Apple - returns user if exists, or email/name for sign-up if new user
+export const signInWithGoogle = async (): Promise<{ user: User } | { email: string; name: string; isNewUser: true }> => {
+  try {
+    if (Platform.OS === 'web') {
+      // Web: Use popup method
+      const { signInWithPopup } = await import('firebase/auth');
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const firebaseUser = result.user;
+
+      if (!firebaseUser.email) {
+        await signOut(auth);
+        throw new Error('Email is required for sign-in');
+      }
+
+      // Check if user exists in Firestore
+      const emailLower = firebaseUser.email.toLowerCase();
+      const q = query(collection(db, 'users'), where('email', '==', emailLower));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userData = querySnapshot.docs[0].data() as User;
+        return { user: userData };
+      } else {
+        return {
+          email: firebaseUser.email,
+          name: firebaseUser.displayName || '',
+          isNewUser: true,
+        };
+      }
+    } else {
+      // Mobile: Google Sign-In requires native modules not available in Expo Go
+      // Users should use email sign-up in Expo Go, or create a development build for full OAuth support
+      throw new Error('Google Sign-In is not available in Expo Go. Please use email sign-up instead.');
+    }
+  } catch (error: any) {
+    if (error.message === 'Sign-in cancelled' || error.code === 'auth/popup-closed-by-user') {
+      throw new Error('Sign-in cancelled');
+    }
+    throw new Error(error.message || 'Failed to sign in with Google');
+  }
+};
+
+export const signInWithApple = async (): Promise<{ user: User } | { email: string; name: string; isNewUser: true }> => {
+  try {
+    if (Platform.OS === 'web') {
+      // Web: Use popup method
+      const { signInWithPopup } = await import('firebase/auth');
+      const provider = new OAuthProvider('apple.com');
+      const result = await signInWithPopup(auth, provider);
+      const firebaseUser = result.user;
+
+      if (!firebaseUser.email) {
+        await signOut(auth);
+        throw new Error('Email is required for sign-in');
+      }
+
+      // Check if user exists in Firestore
+      const emailLower = firebaseUser.email.toLowerCase();
+      const q = query(collection(db, 'users'), where('email', '==', emailLower));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const userData = querySnapshot.docs[0].data() as User;
+        return { user: userData };
+      } else {
+        return {
+          email: firebaseUser.email,
+          name: firebaseUser.displayName || '',
+          isNewUser: true,
+        };
+      }
+    } else if (Platform.OS === 'ios') {
+      // iOS: Apple Sign-In requires native modules not available in Expo Go
+      // Users should use email sign-up in Expo Go, or create a development build for full OAuth support
+      throw new Error('Apple Sign-In is not available in Expo Go. Please use email sign-up instead.');
+    } else {
+      // Android doesn't support Apple Sign-In
+      throw new Error('Apple Sign-In is only available on iOS and web. Please use email sign-up on Android.');
+    }
+  } catch (error: any) {
+    if (error.message === 'Sign-in cancelled' || error.code === 'auth/popup-closed-by-user') {
+      throw new Error('Sign-in cancelled');
+    }
+    throw new Error(error.message || 'Failed to sign in with Apple');
   }
 }; 
